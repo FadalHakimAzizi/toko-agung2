@@ -25,7 +25,7 @@ type CartItem = {
   total: number
 }
 
-const API_BASE = "http://localhost/toko-agung-api/api";
+const API_BASE = "https://toko-agung.my.id/toko-agung-api/api"
 
 export default function TransaksiPage() {
   const [searchTerm, setSearchTerm] = useState("")
