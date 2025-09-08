@@ -58,7 +58,7 @@ export default function BarangPage() {
   })
 
   // API Base URL - sesuaikan dengan setup server Anda
-  const API_BASE = "http://localhost/toko-agung-api/api"
+  const API_BASE = "https://toko-agung.my.id/toko-agung-api/api"
 
   // Fetch data barang
   const fetchBarang = async (search = "") => {
