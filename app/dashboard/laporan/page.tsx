@@ -11,11 +11,12 @@ import { format, subDays } from "date-fns"
 import { id } from "date-fns/locale"
 import { DateRange } from "react-day-picker"
 
+// Interface untuk mendefinisikan struktur data Laporan
 interface Laporan {
     id: number;
     no_faktur: string;
     tanggal: string;
-    items: any;
+    items: string; // Ini adalah JSON string
     total_item: number;
     total_harga: number;
     metode_pembayaran: string;
@@ -26,27 +27,14 @@ const API_BASE = "https://toko-agung.my.id/toko-agung-api/api"
 export default function LaporanPage() {
     const [data, setData] = useState<Laporan[]>([]);
     const [loading, setLoading] = useState(true);
-    // ❌ KODE LAMA (Penyebab Error)
-    // const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    //     from: subDays(new Date(), 30),
-    //     to: new Date(),
-    // });
-    
-    // ✅ PERBAIKAN: Mulai dengan state kosong
-    const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-
-    // ✅ PERBAIKAN: Atur tanggal awal hanya di sisi client menggunakan useEffect
-    useEffect(() => {
-        setDateRange({
-            from: subDays(new Date(), 30),
-            to: new Date(),
-        });
-    }, []); // Array dependensi kosong agar hanya berjalan sekali saat komponen dimuat
+    const [dateRange, setDateRange] = useState<DateRange | undefined>({
+        from: subDays(new Date(), 30), // Mengubah default menjadi 30 hari agar lebih banyak data muncul
+        to: new Date(),
+    });
 
     useEffect(() => {
         const fetchLaporan = async () => {
-            // Jangan jalankan fetch jika dateRange belum di-set
-            if (!dateRange || !dateRange.from || !dateRange.to) return;
+            if (!dateRange?.from || !dateRange?.to) return;
             
             setLoading(true);
             const fromDate = format(dateRange.from, "yyyy-MM-dd");
@@ -54,11 +42,12 @@ export default function LaporanPage() {
 
             try {
                 const response = await fetch(`${API_BASE}/transaksi/read.php?start_date=${fromDate}&end_date=${toDate}`);
-                if (!response.ok) { // Tambahkan pengecekan jika fetch gagal
-                    throw new Error('Gagal mengambil data dari server');
-                }
                 const result = await response.json();
-                setData(result.records || []); // Pastikan setData menerima array
+                if (result.records) {
+                    setData(result.records);
+                } else {
+                    setData([]);
+                }
             } catch (error) {
                 console.error("Failed to fetch reports:", error);
                 setData([]);
@@ -66,32 +55,24 @@ export default function LaporanPage() {
                 setLoading(false);
             }
         };
-
         fetchLaporan();
-    }, [dateRange]); // useEffect ini tetap berjalan setiap kali dateRange berubah
-    
-    // ... sisa kode Anda (tidak perlu diubah)
+    }, [dateRange]);
     
     const totalSales = data.reduce((sum, sale) => sum + Number(sale.total_harga), 0)
     const totalTransactions = data.length
 
-    const formatItemNames = (items: any) => {
-        let itemsArray;
-        if (typeof items === 'string') {
-            try {
-                itemsArray = JSON.parse(items);
-            } catch (e) {
-                console.error("Gagal mem-parsing JSON string:", items);
-                return "Format JSON string salah";
+    // **FUNGSI BARU** untuk mem-parsing dan menampilkan nama barang
+    const formatItemNames = (itemsJson: string) => {
+        try {
+            const itemsArray = JSON.parse(itemsJson);
+            if (Array.isArray(itemsArray)) {
+                return itemsArray.map(item => item.nama_barang).join(", ");
             }
-        } else {
-            itemsArray = items;
+            return "Data item tidak valid";
+        } catch (error) {
+            console.error("Gagal mem-parsing item:", error);
+            return "Format item salah";
         }
-
-        if (Array.isArray(itemsArray)) {
-            return itemsArray.map(item => item.nama_barang).join(", ");
-        }
-        return "Data item tidak valid";
     };
 
     const renderTableBody = () => {
@@ -107,6 +88,7 @@ export default function LaporanPage() {
                 <TableRow key={sale.id}>
                     <TableCell className="font-medium">{sale.no_faktur}</TableCell>
                     <TableCell>{format(new Date(sale.tanggal), "dd MMMM yyyy, HH:mm", { locale: id })}</TableCell>
+                    {/* **PERUBAHAN UTAMA DI SINI** */}
                     <TableCell className="whitespace-normal max-w-[300px] truncate">
                         {formatItemNames(sale.items)}
                     </TableCell>
@@ -149,7 +131,7 @@ export default function LaporanPage() {
                                             format(dateRange.from, "LLL dd, y")
                                         )
                                     ) : (
-                                        <span>Pilih tanggal...</span>
+                                        <span>Pilih tanggal</span>
                                     )}
                                 </Button>
                             </PopoverTrigger>
