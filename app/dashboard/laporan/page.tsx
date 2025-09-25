@@ -12,18 +12,19 @@ import type { DateRange } from "react-day-picker"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
-// Interface untuk item
+// ✅ SOLUSI: Definisikan tipe yang spesifik untuk item
 interface Item {
     nama_barang: string;
-    [key: string]: any;
+    // Izinkan properti lain tanpa error dengan index signature
+    [key: string]: string | number;
 }
 
-// Interface untuk Laporan
+// ✅ SOLUSI: Gunakan tipe Item[] yang sudah didefinisikan
 interface Laporan {
     id: number;
     no_faktur: string;
     tanggal: string;
-    items: Item[] | string; // Bisa berupa array atau string JSON
+    items: Item[] | string;
     total_item: number;
     total_harga: number;
     metode_pembayaran: string;
@@ -66,15 +67,16 @@ export default function LaporanPage() {
     const totalSales = data.reduce((sum, sale) => sum + Number(sale.total_harga), 0)
     const totalTransactions = data.length
 
-    const formatItemNames = (items: any): string => {
-        let itemsArray;
+    // ✅ SOLUSI: Beri tipe spesifik pada parameter 'items'
+    const formatItemNames = (items: Item[] | string): string => {
+        let itemsArray: Item[];
         if (typeof items === 'string') {
-            try { itemsArray = JSON.parse(items); } catch (e) { return "Format JSON salah"; }
+            try { itemsArray = JSON.parse(items); } catch { return "Format JSON salah"; }
         } else {
             itemsArray = items;
         }
         if (Array.isArray(itemsArray)) {
-            return itemsArray.map(item => item.nama_barang || item.name).join(", ");
+            return itemsArray.map(item => item.nama_barang).join(", ");
         }
         return "Data item tidak valid";
     };
