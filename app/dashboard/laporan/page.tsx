@@ -11,12 +11,12 @@ import { format, subDays } from "date-fns"
 import { id } from "date-fns/locale"
 import { DateRange } from "react-day-picker"
 
-// Interface untuk mendefinisikan struktur data Laporan
+// 1. Ubah tipe 'items' menjadi 'any' agar lebih fleksibel
 interface Laporan {
     id: number;
     no_faktur: string;
     tanggal: string;
-    items: string; // Ini adalah JSON string
+    items: any; // Mengizinkan string atau array
     total_item: number;
     total_harga: number;
     metode_pembayaran: string;
@@ -28,7 +28,7 @@ export default function LaporanPage() {
     const [data, setData] = useState<Laporan[]>([]);
     const [loading, setLoading] = useState(true);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
-        from: subDays(new Date(), 30), // Mengubah default menjadi 30 hari agar lebih banyak data muncul
+        from: subDays(new Date(), 30),
         to: new Date(),
     });
 
@@ -61,18 +61,30 @@ export default function LaporanPage() {
     const totalSales = data.reduce((sum, sale) => sum + Number(sale.total_harga), 0)
     const totalTransactions = data.length
 
-    // **FUNGSI BARU** untuk mem-parsing dan menampilkan nama barang
-    const formatItemNames = (itemsJson: string) => {
-        try {
-            const itemsArray = JSON.parse(itemsJson);
-            if (Array.isArray(itemsArray)) {
-                return itemsArray.map(item => item.nama_barang).join(", ");
+    // 2. Ganti dengan fungsi yang lebih robust (tahan banting)
+    const formatItemNames = (items: any) => {
+        let itemsArray;
+
+        // Cek apakah 'items' adalah string, jika ya, coba parse.
+        if (typeof items === 'string') {
+            try {
+                itemsArray = JSON.parse(items);
+            } catch (e) {
+                console.error("Gagal mem-parsing JSON string:", items);
+                return "Format JSON string salah";
             }
-            return "Data item tidak valid";
-        } catch (error) {
-            console.error("Gagal mem-parsing item:", error);
-            return "Format item salah";
+        } else {
+            // Jika bukan string, kita asumsikan sudah berbentuk array/objek.
+            itemsArray = items;
         }
+
+        // Setelah dipastikan, cek apakah hasilnya adalah array.
+        if (Array.isArray(itemsArray)) {
+            // Ambil semua 'nama_barang' dan gabungkan dengan koma
+            return itemsArray.map(item => item.nama_barang).join(", ");
+        }
+
+        return "Data item tidak valid"; // Jika bukan array
     };
 
     const renderTableBody = () => {
@@ -88,7 +100,6 @@ export default function LaporanPage() {
                 <TableRow key={sale.id}>
                     <TableCell className="font-medium">{sale.no_faktur}</TableCell>
                     <TableCell>{format(new Date(sale.tanggal), "dd MMMM yyyy, HH:mm", { locale: id })}</TableCell>
-                    {/* **PERUBAHAN UTAMA DI SINI** */}
                     <TableCell className="whitespace-normal max-w-[300px] truncate">
                         {formatItemNames(sale.items)}
                     </TableCell>
