@@ -5,21 +5,18 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { CalendarIcon } from "lucide-react"
+import { CalendarIcon, AlertTriangle, Info } from "lucide-react"
 import { format, subDays } from "date-fns"
 import { id } from "date-fns/locale"
 import type { DateRange } from "react-day-picker"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
-// ✅ SOLUSI: Definisikan tipe yang spesifik untuk item
 interface Item {
     nama_barang: string;
-    // Izinkan properti lain tanpa error dengan index signature
     [key: string]: string | number;
 }
 
-// ✅ SOLUSI: Gunakan tipe Item[] yang sudah didefinisikan
 interface Laporan {
     id: number;
     no_faktur: string;
@@ -35,6 +32,7 @@ const API_BASE = "https://toko-agung.my.id/toko-agung-api/api"
 export default function LaporanPage() {
     const [data, setData] = useState<Laporan[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
     useEffect(() => {
@@ -46,16 +44,22 @@ export default function LaporanPage() {
             if (!dateRange?.from || !dateRange.to) return;
             
             setLoading(true);
+            setError(null);
             const fromDate = format(dateRange.from, "yyyy-MM-dd");
             const toDate = format(dateRange.to, "yyyy-MM-dd");
 
             try {
                 const response = await fetch(`${API_BASE}/transaksi/read.php?start_date=${fromDate}&end_date=${toDate}`);
-                if (!response.ok) throw new Error('Gagal mengambil data');
                 const result = await response.json();
-                setData(result.records || []);
-            } catch (error) {
-                console.error("Gagal mengambil laporan:", error);
+
+                if (response.ok) {
+                    setData(result.records || []);
+                } else {
+                    throw new Error(result.message || "Gagal mengambil data dari server");
+                }
+            } catch (err) {
+                const errorMessage = err instanceof Error ? err.message : "Terjadi kesalahan.";
+                setError(errorMessage);
                 setData([]);
             } finally {
                 setLoading(false);
@@ -67,36 +71,38 @@ export default function LaporanPage() {
     const totalSales = data.reduce((sum, sale) => sum + Number(sale.total_harga), 0)
     const totalTransactions = data.length
 
-    // ✅ SOLUSI: Beri tipe spesifik pada parameter 'items'
     const formatItemNames = (items: Item[] | string): string => {
-        let itemsArray: Item[];
+        if (Array.isArray(items)) {
+            return items.map(item => item.nama_barang).join(", ");
+        }
         if (typeof items === 'string') {
-            try { itemsArray = JSON.parse(items); } catch { return "Format JSON salah"; }
-        } else {
-            itemsArray = items;
+            try { 
+                const parsedItems: Item[] = JSON.parse(items);
+                return parsedItems.map(item => item.nama_barang).join(", ");
+            } catch { return "Format JSON salah"; }
         }
-        if (Array.isArray(itemsArray)) {
-            return itemsArray.map(item => item.nama_barang).join(", ");
-        }
-        return "Data item tidak valid";
+        return "Data tidak valid";
     };
 
     const renderTableBody = () => {
-        if (loading && data.length === 0) {
+        if (loading) {
             return <TableRow><TableCell colSpan={5} className="h-24 text-center">Memuat data...</TableCell></TableRow>;
         }
-        if (data.length > 0) {
-            return data.map((sale) => (
-                <TableRow key={sale.id}>
-                    <TableCell className="font-medium">{sale.no_faktur}</TableCell>
-                    <TableCell>{format(new Date(sale.tanggal), "dd MMMM yyyy, HH:mm", { locale: id })}</TableCell>
-                    <TableCell className="whitespace-normal max-w-[300px] truncate">{formatItemNames(sale.items)}</TableCell>
-                    <TableCell className="text-center">{sale.total_item}</TableCell>
-                    <TableCell className="text-right">Rp {Number(sale.total_harga).toLocaleString('id-ID')}</TableCell>
-                </TableRow>
-            ));
+        if (error) {
+            return <TableRow><TableCell colSpan={5} className="h-24 text-center text-red-600"><div className="flex items-center justify-center gap-2"><AlertTriangle size={16} /><span>Error: {error}</span></div></TableCell></TableRow>;
         }
-        return <TableRow><TableCell colSpan={5} className="h-24 text-center">Tidak ada transaksi</TableCell></TableRow>;
+        if (data.length === 0) {
+            return <TableRow><TableCell colSpan={5} className="h-24 text-center"><div className="flex items-center justify-center gap-2"><Info size={16} /><span>Tidak ada transaksi pada rentang tanggal ini.</span></div></TableCell></TableRow>;
+        }
+        return data.map((sale) => (
+            <TableRow key={sale.id}>
+                <TableCell className="font-medium">{sale.no_faktur}</TableCell>
+                <TableCell>{format(new Date(sale.tanggal), "dd MMMM yyyy, HH:mm", { locale: id })}</TableCell>
+                <TableCell className="whitespace-normal max-w-[300px] truncate">{formatItemNames(sale.items)}</TableCell>
+                <TableCell className="text-center">{sale.total_item}</TableCell>
+                <TableCell className="text-right">Rp {Number(sale.total_harga).toLocaleString('id-ID')}</TableCell>
+            </TableRow>
+        ));
     };
 
     return (
@@ -109,17 +115,10 @@ export default function LaporanPage() {
                         <Popover>
                             <PopoverTrigger
                                 disabled={!dateRange}
-                                className={cn(
-                                    buttonVariants({ variant: "outline" }),
-                                    "w-full justify-start text-left font-normal"
-                                )}
+                                className={cn(buttonVariants({ variant: "outline" }), "w-full justify-start text-left font-normal")}
                             >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
-                                {dateRange?.from ? (
-                                    dateRange.to ? 
-                                    `${format(dateRange.from, "LLL dd, y")} - ${format(dateRange.to, "LLL dd, y")}` : 
-                                    format(dateRange.from, "LLL dd, y")
-                                ) : ( "Pilih tanggal..." )}
+                                {dateRange?.from ? (dateRange.to ? `${format(dateRange.from, "LLL dd, y")} - ${format(dateRange.to, "LLL dd, y")}` : format(dateRange.from, "LLL dd, y")) : "Pilih tanggal..."}
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0">
                                 <Calendar mode="range" selected={dateRange} onSelect={setDateRange} initialFocus />
