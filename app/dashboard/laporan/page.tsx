@@ -11,12 +11,11 @@ import { format, subDays } from "date-fns"
 import { id } from "date-fns/locale"
 import { DateRange } from "react-day-picker"
 
-// 1. Ubah tipe 'items' menjadi 'any' agar lebih fleksibel
 interface Laporan {
     id: number;
     no_faktur: string;
     tanggal: string;
-    items: any; // Mengizinkan string atau array
+    items: any;
     total_item: number;
     total_harga: number;
     metode_pembayaran: string;
@@ -27,14 +26,27 @@ const API_BASE = "https://toko-agung.my.id/toko-agung-api/api"
 export default function LaporanPage() {
     const [data, setData] = useState<Laporan[]>([]);
     const [loading, setLoading] = useState(true);
-    const [dateRange, setDateRange] = useState<DateRange | undefined>({
-        from: subDays(new Date(), 30),
-        to: new Date(),
-    });
+    // ❌ KODE LAMA (Penyebab Error)
+    // const [dateRange, setDateRange] = useState<DateRange | undefined>({
+    //     from: subDays(new Date(), 30),
+    //     to: new Date(),
+    // });
+    
+    // ✅ PERBAIKAN: Mulai dengan state kosong
+    const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+
+    // ✅ PERBAIKAN: Atur tanggal awal hanya di sisi client menggunakan useEffect
+    useEffect(() => {
+        setDateRange({
+            from: subDays(new Date(), 30),
+            to: new Date(),
+        });
+    }, []); // Array dependensi kosong agar hanya berjalan sekali saat komponen dimuat
 
     useEffect(() => {
         const fetchLaporan = async () => {
-            if (!dateRange?.from || !dateRange?.to) return;
+            // Jangan jalankan fetch jika dateRange belum di-set
+            if (!dateRange || !dateRange.from || !dateRange.to) return;
             
             setLoading(true);
             const fromDate = format(dateRange.from, "yyyy-MM-dd");
@@ -42,12 +54,11 @@ export default function LaporanPage() {
 
             try {
                 const response = await fetch(`${API_BASE}/transaksi/read.php?start_date=${fromDate}&end_date=${toDate}`);
-                const result = await response.json();
-                if (result.records) {
-                    setData(result.records);
-                } else {
-                    setData([]);
+                if (!response.ok) { // Tambahkan pengecekan jika fetch gagal
+                    throw new Error('Gagal mengambil data dari server');
                 }
+                const result = await response.json();
+                setData(result.records || []); // Pastikan setData menerima array
             } catch (error) {
                 console.error("Failed to fetch reports:", error);
                 setData([]);
@@ -55,17 +66,17 @@ export default function LaporanPage() {
                 setLoading(false);
             }
         };
+
         fetchLaporan();
-    }, [dateRange]);
+    }, [dateRange]); // useEffect ini tetap berjalan setiap kali dateRange berubah
+    
+    // ... sisa kode Anda (tidak perlu diubah)
     
     const totalSales = data.reduce((sum, sale) => sum + Number(sale.total_harga), 0)
     const totalTransactions = data.length
 
-    // 2. Ganti dengan fungsi yang lebih robust (tahan banting)
     const formatItemNames = (items: any) => {
         let itemsArray;
-
-        // Cek apakah 'items' adalah string, jika ya, coba parse.
         if (typeof items === 'string') {
             try {
                 itemsArray = JSON.parse(items);
@@ -74,17 +85,13 @@ export default function LaporanPage() {
                 return "Format JSON string salah";
             }
         } else {
-            // Jika bukan string, kita asumsikan sudah berbentuk array/objek.
             itemsArray = items;
         }
 
-        // Setelah dipastikan, cek apakah hasilnya adalah array.
         if (Array.isArray(itemsArray)) {
-            // Ambil semua 'nama_barang' dan gabungkan dengan koma
             return itemsArray.map(item => item.nama_barang).join(", ");
         }
-
-        return "Data item tidak valid"; // Jika bukan array
+        return "Data item tidak valid";
     };
 
     const renderTableBody = () => {
@@ -142,7 +149,7 @@ export default function LaporanPage() {
                                             format(dateRange.from, "LLL dd, y")
                                         )
                                     ) : (
-                                        <span>Pilih tanggal</span>
+                                        <span>Pilih tanggal...</span>
                                     )}
                                 </Button>
                             </PopoverTrigger>
