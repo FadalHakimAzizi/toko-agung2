@@ -10,6 +10,7 @@ import { FAQSection } from "@/components/faqSection";
 import { ContactSection } from "@/components/contactSection";
 import { Footer } from "@/components/footer";
 import GallerySection from "@/components/gallerySection";
+import { ChatbotWidget } from "@/components/chatbot-widget";
 
 
 
@@ -28,7 +29,8 @@ export default function Home (){
             <FAQSection/>
             <ContactSection />
             <Footer />
+            <ChatbotWidget />
         </main>
-        
+
     )
 }

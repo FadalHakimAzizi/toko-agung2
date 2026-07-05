@@ -23,7 +23,8 @@ interface TopProduct {
   revenue: number;
 }
 
-const API_BASE = "https://toko-agung.my.id/toko-agung-api/api"
+// API internal Next.js (menggantikan API PHP eksternal yang sudah tidak aktif)
+const API_BASE = "/api"
 
 const initialChartData: ChartData<'line'> = {
   labels: [],
@@ -49,11 +50,11 @@ export default function DashboardPage() {
     const fetchDashboardData = async () => {
       try {
         setLoading(true)
-        const summaryRes = await fetch(`${API_BASE}/dashboard/summary.php`)
+        const summaryRes = await fetch(`${API_BASE}/dashboard/summary`)
         const summaryData = await summaryRes.json()
         setSummary(summaryData)
 
-        const topProductsRes = await fetch(`${API_BASE}/laporan/top_products.php`)
+        const topProductsRes = await fetch(`${API_BASE}/laporan/top-products`)
         const topProductsData = await topProductsRes.json()
         if (topProductsData.records) {
           setTopProducts(topProductsData.records)
@@ -70,7 +71,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchChartData = async () => {
         try {
-            const res = await fetch(`${API_BASE}/laporan/sales_chart.php?range=${chartRange}`);
+            const res = await fetch(`${API_BASE}/laporan/sales-chart?range=${chartRange}`);
             const data = await res.json();
             if(data.labels && data.datasets) {
                 setChartData(data);

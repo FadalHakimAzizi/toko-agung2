@@ -5,7 +5,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { CalendarIcon, AlertTriangle, Info } from "lucide-react"
+import { CalendarIcon, AlertTriangle, Info, FileDown, FileSpreadsheet } from "lucide-react"
 import { format, subDays } from "date-fns"
 import { id } from "date-fns/locale"
 import type { DateRange } from "react-day-picker"
@@ -27,7 +27,8 @@ interface Laporan {
     metode_pembayaran: string;
 }
 
-const API_BASE = "https://toko-agung.my.id/toko-agung-api/api"
+// API internal Next.js (menggantikan API PHP eksternal yang sudah tidak aktif)
+const API_BASE = "/api"
 
 export default function LaporanPage() {
     const [data, setData] = useState<Laporan[]>([]);
@@ -49,7 +50,7 @@ export default function LaporanPage() {
             const toDate = format(dateRange.to, "yyyy-MM-dd");
 
             try {
-                const response = await fetch(`${API_BASE}/transaksi/read.php?start_date=${fromDate}&end_date=${toDate}`);
+                const response = await fetch(`${API_BASE}/transaksi?start_date=${fromDate}&end_date=${toDate}`);
                 const result = await response.json();
 
                 if (response.ok) {
@@ -135,10 +136,50 @@ export default function LaporanPage() {
                     <CardContent><div className="text-2xl font-bold">Rp {totalSales.toLocaleString('id-ID')}</div></CardContent>
                 </Card>
             </div>
+            {/* Export laporan ke PDF & Excel (diproses di backend) */}
+            <Card className="border-none shadow-sm">
+                <CardHeader>
+                    <CardTitle>Export Laporan</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 sm:grid-cols-3">
+                    {([
+                        { jenis: "transaksi", label: "Laporan Transaksi", pakaiTanggal: true },
+                        { jenis: "stok", label: "Laporan Stok Barang", pakaiTanggal: false },
+                        { jenis: "pembayaran", label: "Laporan Pembayaran", pakaiTanggal: true },
+                    ] as const).map((laporan) => {
+                        const rangeParams =
+                            laporan.pakaiTanggal && dateRange?.from && dateRange?.to
+                                ? `&start_date=${format(dateRange.from, "yyyy-MM-dd")}&end_date=${format(dateRange.to, "yyyy-MM-dd")}`
+                                : "";
+                        return (
+                            <div key={laporan.jenis} className="rounded-lg border p-4 space-y-3">
+                                <p className="font-medium text-sm">{laporan.label}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {laporan.pakaiTanggal ? "Mengikuti filter tanggal di atas" : "Seluruh data stok saat ini"}
+                                </p>
+                                <div className="flex gap-2">
+                                    <a
+                                        href={`/api/laporan/export?jenis=${laporan.jenis}&format=pdf${rangeParams}`}
+                                        className={cn(buttonVariants({ variant: "outline", size: "sm" }), "flex-1")}
+                                    >
+                                        <FileDown className="h-4 w-4 mr-1" /> PDF
+                                    </a>
+                                    <a
+                                        href={`/api/laporan/export?jenis=${laporan.jenis}&format=excel${rangeParams}`}
+                                        className={cn(buttonVariants({ variant: "outline", size: "sm" }), "flex-1")}
+                                    >
+                                        <FileSpreadsheet className="h-4 w-4 mr-1" /> Excel
+                                    </a>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </CardContent>
+            </Card>
             <Card className="border-none shadow-sm">
                 <CardHeader><CardTitle>Daftar Transaksi</CardTitle></CardHeader>
                 <CardContent>
-                    <div className="rounded-md border">
+                    <div className="rounded-md border overflow-x-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>

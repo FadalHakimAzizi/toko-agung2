@@ -57,14 +57,14 @@ export default function BarangPage() {
     deskripsi: "",
   })
 
-  // API Base URL - sesuaikan dengan setup server Anda
-  const API_BASE = "https://toko-agung.my.id/toko-agung-api/api"
+  // API internal Next.js (menggantikan API PHP eksternal yang sudah tidak aktif)
+  const API_BASE = "/api"
 
   // Fetch data barang
   const fetchBarang = async (search = "") => {
     try {
       setLoading(true)
-      const url = search ? `${API_BASE}/barang/read.php?s=${encodeURIComponent(search)}` : `${API_BASE}/barang/read.php`
+      const url = search ? `${API_BASE}/barang?s=${encodeURIComponent(search)}` : `${API_BASE}/barang`
       const response = await fetch(url)
       const data = await response.json()
 
@@ -85,7 +85,7 @@ export default function BarangPage() {
   // Fetch data kategori
   const fetchKategori = async () => {
     try {
-      const response = await fetch(`${API_BASE}/kategori/read.php`)
+      const response = await fetch(`${API_BASE}/kategori`)
       const data = await response.json()
 
       if (response.ok && data.records) {
@@ -147,7 +147,7 @@ export default function BarangPage() {
     setSuccess("")
 
     try {
-      const response = await fetch(`${API_BASE}/barang/create.php`, {
+      const response = await fetch(`${API_BASE}/barang`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -188,7 +188,7 @@ export default function BarangPage() {
         status: editingBarang.status,
       }
 
-      const response = await fetch(`${API_BASE}/barang/update.php`, {
+      const response = await fetch(`${API_BASE}/barang`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -223,7 +223,7 @@ export default function BarangPage() {
     setSuccess("")
 
     try {
-      const response = await fetch(`${API_BASE}/barang/delete.php`, {
+      const response = await fetch(`${API_BASE}/barang`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -277,7 +277,7 @@ export default function BarangPage() {
               <Plus className="w-4 h-4 mr-2" /> Tambah Produk
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Tambah Barang Baru</DialogTitle>
             </DialogHeader>
@@ -420,8 +420,8 @@ export default function BarangPage() {
         </Select>
       </div>
 
-      {/* Table */}
-      <div className="rounded-md border">
+      {/* Table (bisa discroll horizontal di layar kecil) */}
+      <div className="rounded-md border overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

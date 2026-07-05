@@ -31,18 +31,29 @@ export default function LoginPage() {
     setIsLoading(true)
     setError("")
 
-    // Simulasi login - ganti dengan API call yang sebenarnya
-    setTimeout(() => {
-      if (formData.username === "admin" && formData.password === "admin123") {
-        // Login berhasil
+    // Login sungguhan ke API internal; sesi disimpan di cookie httpOnly
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      })
+      const data = await response.json()
+
+      if (response.ok) {
+        // Info user disimpan hanya untuk tampilan header (bukan untuk otorisasi)
         localStorage.setItem("isLoggedIn", "true")
-        localStorage.setItem("user", JSON.stringify({ username: formData.username, role: "admin" }))
-        window.location.href = "/dashboard"
+        localStorage.setItem("user", JSON.stringify(data.user))
+        // Admin ke dashboard, pembeli ke halaman belanja
+        window.location.href = data.user.role === "admin" ? "/dashboard" : "/belanja"
       } else {
-        setError("Username atau password salah!")
+        setError(data.message || "Username atau password salah!")
         setIsLoading(false)
       }
-    }, 1000)
+    } catch {
+      setError("Tidak dapat terhubung ke server. Pastikan database sudah dikonfigurasi.")
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -68,8 +79,10 @@ export default function LoginPage() {
                 className="w-15 h-15"
               />
             </div>
-            <CardTitle className="text-2xl font-bold text-[#2D2D2D]">Login Admin</CardTitle>
-            <CardDescription className="text-gray-600">Masuk ke sistem manajemen Toko Agung</CardDescription>
+            <CardTitle className="text-2xl font-bold text-[#2D2D2D]">Login</CardTitle>
+            <CardDescription className="text-gray-600">
+              Masuk sebagai admin atau pembeli Toko Agung
+            </CardDescription>
           </CardHeader>
 
           <CardContent className="space-y-6">
@@ -132,7 +145,12 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            
+            <p className="text-center text-sm text-gray-600">
+              Belum punya akun?{" "}
+              <Link href="/register" className="text-[#00C559] hover:underline font-medium">
+                Daftar di sini
+              </Link>
+            </p>
           </CardContent>
         </Card>
 

@@ -2,11 +2,12 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BarChart3, FileText, Home, Package, Settings, ShoppingCart } from "lucide-react"
+import { BadgeCheck, BarChart3, FileText, Home, Package, Settings, ShoppingCart } from "lucide-react"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 
-const sidebarItems = [
+// Diekspor agar bisa dipakai ulang oleh menu mobile di dashboard-header
+export const sidebarItems = [
   {
     title: "Dashboard",
     href: "/dashboard",
@@ -21,6 +22,11 @@ const sidebarItems = [
     title: "Transaksi",
     href: "/dashboard/transaksi",
     icon: ShoppingCart,
+  },
+  {
+    title: "Verifikasi Pembayaran",
+    href: "/dashboard/verifikasi",
+    icon: BadgeCheck,
   },
   {
     title: "Laporan",

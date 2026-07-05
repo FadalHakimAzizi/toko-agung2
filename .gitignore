@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# file unggahan (bukti pembayaran & QRIS) - tidak ikut repository
+/public/uploads/
 
 # vercel
 .vercel

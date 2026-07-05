@@ -25,7 +25,8 @@ type CartItem = {
   total: number
 }
 
-const API_BASE = "https://toko-agung.my.id/toko-agung-api/api"
+// API internal Next.js (menggantikan API PHP eksternal yang sudah tidak aktif)
+const API_BASE = "/api"
 
 export default function TransaksiPage() {
   const [searchTerm, setSearchTerm] = useState("")
@@ -43,7 +44,7 @@ export default function TransaksiPage() {
         return;
       }
       try {
-        const response = await fetch(`${API_BASE}/barang/read.php?s=${encodeURIComponent(searchTerm)}`);
+        const response = await fetch(`${API_BASE}/barang?s=${encodeURIComponent(searchTerm)}`);
         const data = await response.json();
         if (data.records) {
           setSearchResults(data.records);
@@ -123,7 +124,7 @@ export default function TransaksiPage() {
     };
 
     try {
-        const response = await fetch(`${API_BASE}/transaksi/create.php`, {
+        const response = await fetch(`${API_BASE}/transaksi`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(transactionData)
@@ -196,7 +197,7 @@ export default function TransaksiPage() {
                 )}
               </div>
 
-              <div className="rounded-md border">
+              <div className="rounded-md border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>

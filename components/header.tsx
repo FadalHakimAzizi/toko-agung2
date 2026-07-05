@@ -174,16 +174,16 @@ export function Header() {
                 variant="outline"
                 size="sm"
                 className="border-[#00C559] text-[#00C559] hover:bg-[#00C559]/5 bg-transparent"
-                onClick={() => scrollToSection("#katalog")}
+                onClick={() => (window.location.href = "/belanja")}
               >
-                Lihat Katalog
+                Belanja Online
               </Button>
               <Button
                 size="sm"
                 className="bg-[#00C559] hover:bg-[#00A047] text-white"
                 onClick={() => (window.location.href = "/login")}
               >
-                Login Admin
+                Login
               </Button>
             </div>
 
@@ -276,6 +276,23 @@ export function Header() {
                       >
                         <Phone className="mr-2 h-4 w-4" />
                         Telepon
+                      </Button>
+                    </div>
+
+                    {/* Akses belanja online & login dari menu mobile */}
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="flex-1 bg-transparent border-[#00C559] text-[#00C559]"
+                        onClick={() => (window.location.href = "/belanja")}
+                      >
+                        Belanja Online
+                      </Button>
+                      <Button
+                        className="flex-1 bg-[#2D2D2D] hover:bg-black text-white"
+                        onClick={() => (window.location.href = "/login")}
+                      >
+                        Login
                       </Button>
                     </div>
                   </div>
