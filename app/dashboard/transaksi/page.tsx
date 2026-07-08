@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Minus, Plus, Printer, Save, Search, Trash2 } from "lucide-react"
+import { Minus, Plus, Save, Search, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
@@ -139,7 +139,7 @@ export default function TransaksiPage() {
             setMessage({ type: 'error', text: result.message || 'Gagal menyimpan transaksi.'});
         }
 
-    } catch (error) {
+    } catch {
         setMessage({ type: 'error', text: 'Terjadi kesalahan koneksi.' });
     } finally {
         setLoading(false);

@@ -45,12 +45,12 @@ export async function POST(request: Request, { params }: Params) {
 
     const formData = await request.formData()
     const file = formData.get("file")
-    const fileError = validateImageFile(file instanceof File ? file : null)
-    if (fileError) {
-      return NextResponse.json({ message: fileError }, { status: 400 })
+    const validated = await validateImageFile(file instanceof File ? file : null)
+    if ("error" in validated) {
+      return NextResponse.json({ message: validated.error }, { status: 400 })
     }
 
-    const saved = await saveImageFile(file as File, "bukti")
+    const saved = await saveImageFile(validated.image, "bukti")
 
     await withTransaction(async (client) => {
       await client.query(

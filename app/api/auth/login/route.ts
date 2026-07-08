@@ -1,7 +1,16 @@
 // POST /api/auth/login — login admin/user, membuat sesi + cookie httpOnly
 import { NextResponse } from "next/server"
 import { query } from "@/lib/db"
-import { createSession, verifyPassword, SESSION_COOKIE } from "@/lib/auth"
+import {
+  createSession,
+  verifyPassword,
+  verifyAgainstDummyHash,
+  isAccountLocked,
+  registerFailedLogin,
+  resetFailedLogin,
+  LOGIN_LOCK_MINUTES,
+  SESSION_COOKIE,
+} from "@/lib/auth"
 
 export async function POST(request: Request) {
   try {
@@ -12,14 +21,31 @@ export async function POST(request: Request) {
     }
 
     const rows = await query(
-      "SELECT id, username, password_hash, nama_lengkap, role FROM users WHERE username = $1",
+      "SELECT id, username, password_hash, nama_lengkap, role, locked_until FROM users WHERE username = $1",
       [String(username).trim().toLowerCase()],
     )
     const user = rows[0]
 
-    if (!user || !verifyPassword(String(password), user.password_hash)) {
+    if (!user) {
+      // Tetap jalankan scrypt terhadap hash umpan agar waktu respons mirip
+      // dengan kasus password salah (mencegah enumerasi username).
+      verifyAgainstDummyHash(String(password))
       return NextResponse.json({ message: "Username atau password salah!" }, { status: 401 })
     }
+
+    if (isAccountLocked(user.locked_until)) {
+      return NextResponse.json(
+        { message: `Akun terkunci sementara karena terlalu banyak percobaan gagal. Coba lagi dalam ${LOGIN_LOCK_MINUTES} menit.` },
+        { status: 429 },
+      )
+    }
+
+    if (!verifyPassword(String(password), user.password_hash)) {
+      await registerFailedLogin(user.id)
+      return NextResponse.json({ message: "Username atau password salah!" }, { status: 401 })
+    }
+
+    await resetFailedLogin(user.id)
 
     const { token, expiresAt } = await createSession(user.id)
 

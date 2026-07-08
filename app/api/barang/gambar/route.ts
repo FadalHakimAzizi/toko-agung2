@@ -1,6 +1,6 @@
-// POST /api/settings/qris — admin mengunggah gambar QRIS toko (multipart/form-data)
+// POST /api/barang/gambar — admin mengunggah gambar barang (multipart/form-data).
+// Mengembalikan path publik gambar; disimpan lewat POST/PUT /api/barang (field `gambar`).
 import { NextResponse } from "next/server"
-import { query } from "@/lib/db"
 import { requireAdmin } from "@/lib/auth"
 import { validateImageFile, saveImageFile } from "@/lib/upload"
 
@@ -17,16 +17,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: validated.error }, { status: 400 })
     }
 
-    const saved = await saveImageFile(validated.image, "qris")
-    await query(
-      `INSERT INTO settings (key, value) VALUES ('qris_image', $1)
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-      [saved.publicPath],
-    )
-
-    return NextResponse.json({ message: "Gambar QRIS berhasil diperbarui", qris_image: saved.publicPath })
+    const saved = await saveImageFile(validated.image, "barang")
+    return NextResponse.json({ message: "Gambar berhasil diunggah", gambar: saved.publicPath })
   } catch (err) {
-    console.error("QRIS upload error:", err)
-    return NextResponse.json({ message: "Gagal mengunggah gambar QRIS" }, { status: 500 })
+    console.error("Upload gambar barang error:", err)
+    return NextResponse.json({ message: "Gagal mengunggah gambar barang" }, { status: 500 })
   }
 }

@@ -28,6 +28,18 @@ const STOPWORDS = new Set([
   "tersedia", "punya", "masih", "berapaan", "info", "tentang", "toko",
 ])
 
+// Sapaan singkat (tanpa pertanyaan lain menyertai) — dibalas sapaan ramah
+// langsung tanpa perlu retrieval/LLM.
+const GREETING_ONLY_PATTERN =
+  /^(hai+|halo+|hallo+|hi+|hello+|hey+|p+|permisi|assalamu\s*'?alaikum|selamat\s+(pagi|siang|sore|malam)|met\s+(pagi|siang|sore|malam))[\s!.,]*$/i
+
+export const GREETING_MESSAGE =
+  "Halo! Senang bisa bantu 😊 Ada yang bisa saya bantu seputar Toko Alat Tulis Agung — stok, harga produk, jam buka, alamat, atau cara pembayaran?"
+
+export function isGreetingOnly(question: string): boolean {
+  return GREETING_ONLY_PATTERN.test(question.trim())
+}
+
 // Sanitasi input: batasi panjang, buang karakter kontrol
 export function sanitizeQuestion(raw: unknown): string {
   return String(raw ?? "")
@@ -37,11 +49,19 @@ export function sanitizeQuestion(raw: unknown): string {
     .slice(0, 500)
 }
 
+// Melepas akhiran "-nya" (kata ganti lekat bahasa Indonesia), mis. "harganya"
+// -> "harga", "stoknya" -> "stok", supaya kata dasarnya tetap terdeteksi
+// sebagai stopword/kata umum, bukan dianggap kata kunci pencarian baru.
+function stripPossessiveSuffix(word: string): string {
+  return word.length > 5 && word.endsWith("nya") ? word.slice(0, -3) : word
+}
+
 function extractKeywords(question: string): string[] {
   return question
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
+    .map(stripPossessiveSuffix)
     .filter((w) => w.length >= 3 && !STOPWORDS.has(w))
 }
 
@@ -53,29 +73,40 @@ export interface RetrievedContext {
   sumber: string[]
 }
 
+async function cariProdukByKeywords(keywords: string[]) {
+  if (keywords.length === 0) return []
+  const likeParams = keywords.map((k) => `%${k}%`)
+  const conditions = likeParams.map((_, i) => `b.nama_barang ILIKE $${i + 1}`).join(" OR ")
+  return query<RetrievedContext["produk"][number]>(
+    `SELECT b.nama_barang, b.harga::float8 AS harga, b.stok, b.satuan,
+            COALESCE(k.nama_kategori, 'Tanpa Kategori') AS kategori
+     FROM barang b
+     LEFT JOIN kategori k ON k.id = b.kategori_id
+     WHERE b.status = 'aktif' AND (${conditions})
+     ORDER BY b.nama_barang LIMIT 8`,
+    likeParams,
+  )
+}
+
 // ---------- Tahap RETRIEVAL ----------
-export async function retrieveContext(question: string, isAdmin: boolean): Promise<RetrievedContext> {
+// `lastUserQuestion`: pertanyaan pengguna sebelumnya dalam percakapan yang
+// sama (jika ada). Dipakai sebagai fallback saat pertanyaan saat ini adalah
+// pertanyaan lanjutan tanpa nama produk (mis. "berapa harganya?" setelah
+// sebelumnya menanyakan "apakah penggaris ready?") supaya topik tetap nyambung.
+export async function retrieveContext(
+  question: string,
+  isAdmin: boolean,
+  lastUserQuestion = "",
+): Promise<RetrievedContext> {
   const q = question.toLowerCase()
   const keywords = extractKeywords(question)
   const sumber: string[] = []
 
   // 1) Produk dari database: dicari jika ada kata kunci, atau pertanyaan
   //    menyebut harga/stok/produk secara umum
-  let produk: RetrievedContext["produk"] = []
   const tanyaProduk = /harga|stok|stock|produk|barang|jual|tersedia|katalog|beli/.test(q)
-  if (keywords.length > 0) {
-    const likeParams = keywords.map((k) => `%${k}%`)
-    const conditions = likeParams.map((_, i) => `b.nama_barang ILIKE $${i + 1}`).join(" OR ")
-    produk = await query(
-      `SELECT b.nama_barang, b.harga::float8 AS harga, b.stok, b.satuan,
-              COALESCE(k.nama_kategori, 'Tanpa Kategori') AS kategori
-       FROM barang b
-       LEFT JOIN kategori k ON k.id = b.kategori_id
-       WHERE b.status = 'aktif' AND (${conditions})
-       ORDER BY b.nama_barang LIMIT 8`,
-      likeParams,
-    )
-  }
+  let produk: RetrievedContext["produk"] = await cariProdukByKeywords(keywords)
+
   if (produk.length === 0 && tanyaProduk && /apa saja|daftar|list|semua|katalog/.test(q)) {
     // Pertanyaan daftar produk secara umum
     produk = await query(
@@ -85,7 +116,16 @@ export async function retrieveContext(question: string, isAdmin: boolean): Promi
        WHERE b.status = 'aktif' ORDER BY b.nama_barang LIMIT 15`,
     )
   }
-  if (produk.length > 0) sumber.push("database produk")
+
+  // Fallback percakapan: pertanyaan saat ini tidak menyebut produk apa pun
+  // (mis. "berapa harganya?") tapi masih seputar harga/stok — coba cari
+  // produk dari kata kunci pertanyaan SEBELUMNYA agar topik tetap nyambung.
+  if (produk.length === 0 && tanyaProduk && lastUserQuestion) {
+    produk = await cariProdukByKeywords(extractKeywords(lastUserQuestion))
+    if (produk.length > 0) sumber.push("database produk (lanjutan topik sebelumnya)")
+  } else if (produk.length > 0) {
+    sumber.push("database produk")
+  }
 
   // 2) Knowledge base — RAG retrieval.
   //    Utamakan SEMANTIC SEARCH via embedding + pgvector (paham makna/parafrase);
@@ -241,8 +281,20 @@ export function buildTemplateAnswer(question: string, ctx: RetrievedContext): st
   return jawaban.join("\n\n")
 }
 
+export interface ChatHistoryItem {
+  role: "user" | "bot"
+  text: string
+}
+
 // ---------- Tahap GENERATION: LLM (jika AI_API_KEY tersedia) ----------
-export async function generateLlmAnswer(question: string, contextText: string): Promise<string | null> {
+// `history`: beberapa giliran percakapan terakhir (opsional) supaya LLM bisa
+// memahami pertanyaan lanjutan yang merujuk ke topik sebelumnya, dan supaya
+// gaya bahasanya tetap nyambung seperti mengobrol, bukan tanya-jawab lepas.
+export async function generateLlmAnswer(
+  question: string,
+  contextText: string,
+  history: ChatHistoryItem[] = [],
+): Promise<string | null> {
   const apiKey = process.env.AI_API_KEY
   if (!apiKey) return null
 
@@ -250,13 +302,22 @@ export async function generateLlmAnswer(question: string, contextText: string): 
   const model = process.env.AI_MODEL || "gpt-4o-mini"
 
   const systemPrompt =
-    "Kamu adalah asisten virtual Toko Alat Tulis Agung. " +
-    "Jawab dalam bahasa Indonesia yang ramah dan ringkas, HANYA berdasarkan KONTEKS yang diberikan. " +
-    "KONTEKS dapat memuat beberapa potongan informasi; gunakan bagian yang relevan dengan pertanyaan untuk menjawab, dan abaikan bagian yang tidak relevan. " +
-    "Tolak HANYA jika tidak ada satu pun bagian konteks yang relevan, atau pertanyaan di luar topik toko " +
-    "(stok, harga, produk, FAQ, profil, alamat, jam operasional, kebijakan pembayaran, laporan). " +
+    "Kamu adalah asisten virtual Toko Alat Tulis Agung, ramah dan santai seperti mengobrol langsung dengan pelanggan di toko. " +
+    "Balas dengan bahasa Indonesia yang natural dan manusiawi (boleh membalas sapaan dengan sapaan singkat), jangan kaku atau terasa seperti template. " +
+    "Pakai RIWAYAT PERCAKAPAN sebelumnya untuk memahami pertanyaan lanjutan yang tidak menyebut ulang subjeknya " +
+    "(mis. jika sebelumnya membahas satu produk lalu pelanggan tanya \"berapa harganya?\", itu merujuk ke produk yang sama). " +
+    "Jawab HANYA berdasarkan KONTEKS yang diberikan pada giliran ini; KONTEKS bisa memuat beberapa potongan informasi, pakai bagian yang relevan dan abaikan yang tidak relevan. " +
+    "Tolak HANYA jika pertanyaan benar-benar di luar topik toko (stok, harga, produk, FAQ, profil, alamat, jam operasional, kebijakan pembayaran, laporan) " +
+    "dan tidak bisa dijawab dari KONTEKS maupun riwayat percakapan. " +
     `Saat menolak, jawab persis: "${REFUSAL_MESSAGE}" ` +
     "Jangan pernah mengarang data harga/stok yang tidak ada di konteks."
+
+  // Sertakan beberapa giliran terakhir sebagai riwayat chat asli (bukan
+  // dirangkum jadi teks) supaya model bisa menelusuri rujukan secara natural.
+  const historyMessages = history.slice(-6).map((h) => ({
+    role: h.role === "user" ? ("user" as const) : ("assistant" as const),
+    content: h.text,
+  }))
 
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -267,10 +328,11 @@ export async function generateLlmAnswer(question: string, contextText: string): 
       },
       body: JSON.stringify({
         model,
-        temperature: 0.2,
+        temperature: 0.3,
         max_tokens: 500,
         messages: [
           { role: "system", content: systemPrompt },
+          ...historyMessages,
           { role: "user", content: `KONTEKS:\n${contextText || "(tidak ada konteks ditemukan)"}\n\nPERTANYAAN: ${question}` },
         ],
       }),

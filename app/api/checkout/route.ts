@@ -35,10 +35,12 @@ export async function POST(request: Request) {
       let totalItem = 0
       const detail: { barang_id: number; nama: string; harga: number; jumlah: number; subtotal: number }[] = []
 
-      // Validasi stok — harga selalu diambil dari database, bukan dari client
+      // Validasi stok — harga selalu diambil dari database, bukan dari client.
+      // FOR UPDATE mengunci baris barang agar dua checkout bersamaan untuk
+      // barang yang sama tidak lolos validasi stok pada saat bersamaan.
       for (const item of items) {
         const { rows } = await client.query(
-          "SELECT id, nama_barang, harga::float8 AS harga, stok, status FROM barang WHERE id = $1",
+          "SELECT id, nama_barang, harga::float8 AS harga, stok, status FROM barang WHERE id = $1 FOR UPDATE",
           [Number(item.id)],
         )
         const barang = rows[0]

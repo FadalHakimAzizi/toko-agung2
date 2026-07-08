@@ -7,6 +7,10 @@ import { query } from "@/lib/db"
 export const SESSION_COOKIE = "session_token"
 const SESSION_DAYS = 7
 
+// Proteksi brute-force login: kunci akun sementara setelah beberapa kali gagal.
+export const LOGIN_MAX_ATTEMPTS = 5
+export const LOGIN_LOCK_MINUTES = 15
+
 export interface SessionUser {
   id: number
   username: string
@@ -29,6 +33,36 @@ export function verifyPassword(password: string, stored: string): boolean {
   return candidate.length === expected.length && timingSafeEqual(candidate, expected)
 }
 
+// Hash "umpan" dipakai saat username tidak ditemukan, supaya login tetap
+// menjalankan scrypt dan waktu respons tidak beda dengan kasus password
+// salah (mencegah enumerasi username lewat timing attack).
+const DUMMY_HASH = hashPassword(randomBytes(16).toString("hex"))
+export function verifyAgainstDummyHash(password: string): void {
+  verifyPassword(password, DUMMY_HASH)
+}
+
+// Akun terkunci jika locked_until masih di masa depan
+export function isAccountLocked(lockedUntil: Date | string | null): boolean {
+  return !!lockedUntil && new Date(lockedUntil) > new Date()
+}
+
+// Catat percobaan login gagal; kunci akun sementara jika melewati batas
+export async function registerFailedLogin(userId: number): Promise<void> {
+  const rows = await query<{ failed_attempts: number }>(
+    "UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = $1 RETURNING failed_attempts",
+    [userId],
+  )
+  if ((rows[0]?.failed_attempts ?? 0) >= LOGIN_MAX_ATTEMPTS) {
+    const lockedUntil = new Date(Date.now() + LOGIN_LOCK_MINUTES * 60 * 1000)
+    await query("UPDATE users SET locked_until = $1 WHERE id = $2", [lockedUntil, userId])
+  }
+}
+
+// Reset penghitung setelah login berhasil
+export async function resetFailedLogin(userId: number): Promise<void> {
+  await query("UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = $1", [userId])
+}
+
 // Membuat sesi baru dan mengembalikan token untuk disimpan di cookie
 export async function createSession(userId: number): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("hex")
@@ -38,6 +72,11 @@ export async function createSession(userId: number): Promise<{ token: string; ex
     userId,
     expiresAt,
   ])
+  // Bersihkan sesi kedaluwarsa sesekali (probabilistik) agar tabel sessions
+  // tidak menumpuk tanpa perlu cron job terpisah.
+  if (Math.random() < 0.05) {
+    query("DELETE FROM sessions WHERE expires_at < NOW()").catch(() => {})
+  }
   return { token, expiresAt }
 }
 

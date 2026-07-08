@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Edit, Plus, Search, Trash2, AlertTriangle } from "lucide-react"
+import { Edit, Plus, Search, Trash2, AlertTriangle, Upload, ImageOff } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -25,6 +25,7 @@ interface Barang {
   stok_minimum: number
   satuan: string
   deskripsi: string
+  gambar: string | null
   status: string
 }
 
@@ -55,7 +56,11 @@ export default function BarangPage() {
     stok_minimum: "10",
     satuan: "pcs",
     deskripsi: "",
+    gambar: "", // path gambar yang sudah tersimpan (hasil upload atau data lama saat edit)
   })
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
 
   // API internal Next.js (menggantikan API PHP eksternal yang sudah tidak aktif)
   const API_BASE = "/api"
@@ -91,7 +96,7 @@ export default function BarangPage() {
       if (response.ok && data.records) {
         setKategoriList(data.records)
       }
-    } catch (_) {
+    } catch {
       console.error("Error fetching kategori")
     }
   }
@@ -136,7 +141,35 @@ export default function BarangPage() {
       stok_minimum: "10",
       satuan: "pcs",
       deskripsi: "",
+      gambar: "",
     })
+    setImageFile(null)
+    setImagePreview(null)
+  }
+
+  // Pratinjau gambar yang baru dipilih (belum diunggah)
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null
+    setImageFile(file)
+    setImagePreview(file ? URL.createObjectURL(file) : null)
+  }
+
+  // Unggah gambar yang dipilih (jika ada) dan kembalikan path publiknya.
+  // Kalau tidak ada gambar baru, kembalikan path yang sudah ada di form
+  // (supaya gambar lama tidak terhapus saat edit tanpa ganti foto).
+  const uploadImageIfNeeded = async (): Promise<string | null> => {
+    if (!imageFile) return formData.gambar || null
+    setUploadingImage(true)
+    try {
+      const uploadForm = new FormData()
+      uploadForm.append("file", imageFile)
+      const response = await fetch(`${API_BASE}/barang/gambar`, { method: "POST", body: uploadForm })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || "Gagal mengunggah gambar")
+      return data.gambar as string
+    } finally {
+      setUploadingImage(false)
+    }
   }
 
   // Handle tambah barang
@@ -147,12 +180,13 @@ export default function BarangPage() {
     setSuccess("")
 
     try {
+      const gambar = await uploadImageIfNeeded()
       const response = await fetch(`${API_BASE}/barang`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, gambar }),
       })
 
       const data = await response.json()
@@ -165,8 +199,8 @@ export default function BarangPage() {
       } else {
         setError(data.message || "Gagal menambahkan barang")
       }
-    } catch (_) {
-      setError("Terjadi kesalahan saat menambahkan barang")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Terjadi kesalahan saat menambahkan barang")
     } finally {
       setLoading(false)
     }
@@ -182,9 +216,11 @@ export default function BarangPage() {
     setSuccess("")
 
     try {
+      const gambar = await uploadImageIfNeeded()
       const updateData = {
         id: editingBarang.id,
         ...formData,
+        gambar,
         status: editingBarang.status,
       }
 
@@ -207,8 +243,8 @@ export default function BarangPage() {
       } else {
         setError(data.message || "Gagal mengupdate barang")
       }
-    } catch (_) {
-      setError("Terjadi kesalahan saat mengupdate barang")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Terjadi kesalahan saat mengupdate barang")
     } finally {
       setLoading(false)
     }
@@ -239,7 +275,7 @@ export default function BarangPage() {
       } else {
         setError(data.message || "Gagal menghapus barang")
       }
-    } catch (_) {
+    } catch {
       console.error("Error fetching barang")
       setError("Gagal memuat data barang")
       setBarangList([])
@@ -259,7 +295,10 @@ export default function BarangPage() {
       stok_minimum: barang.stok_minimum.toString(),
       satuan: barang.satuan,
       deskripsi: barang.deskripsi,
+      gambar: barang.gambar ?? "",
     })
+    setImageFile(null)
+    setImagePreview(barang.gambar ?? null)
     setIsEditDialogOpen(true)
   }
 
@@ -367,12 +406,27 @@ export default function BarangPage() {
                   placeholder="Deskripsi barang (opsional)"
                 />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="gambar">Foto Barang (opsional, maks. 2MB)</Label>
+                <div className="flex items-center gap-3">
+                  {imagePreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={imagePreview} alt="Pratinjau" className="h-16 w-16 rounded-md border object-cover shrink-0" />
+                  ) : (
+                    <div className="h-16 w-16 rounded-md border bg-gray-50 flex items-center justify-center text-gray-300 shrink-0">
+                      <ImageOff className="h-6 w-6" />
+                    </div>
+                  )}
+                  <Input id="gambar" type="file" accept="image/jpeg,image/jpg,image/png,image/webp" onChange={handleImageChange} />
+                </div>
+              </div>
               <div className="flex justify-end gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                   Batal
                 </Button>
-                <Button type="submit" className="bg-[#00C559] hover:bg-[#00A047]" disabled={loading}>
-                  {loading ? "Menyimpan..." : "Simpan"}
+                <Button type="submit" className="bg-[#00C559] hover:bg-[#00A047]" disabled={loading || uploadingImage}>
+                  <Upload className="w-4 h-4 mr-2" />
+                  {uploadingImage ? "Mengunggah foto..." : loading ? "Menyimpan..." : "Simpan"}
                 </Button>
               </div>
             </form>
@@ -425,6 +479,7 @@ export default function BarangPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>Foto</TableHead>
               <TableHead>Kode</TableHead>
               <TableHead>Nama Barang</TableHead>
               <TableHead>Kategori</TableHead>
@@ -436,13 +491,23 @@ export default function BarangPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
+                <TableCell colSpan={7} className="h-24 text-center">
                   Memuat data...
                 </TableCell>
               </TableRow>
             ) : filteredBarang.length > 0 ? (
               filteredBarang.map((barang) => (
                 <TableRow key={barang.id}>
+                  <TableCell>
+                    {barang.gambar ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={barang.gambar} alt={barang.nama_barang} className="h-10 w-10 rounded-md border object-cover" />
+                    ) : (
+                      <div className="h-10 w-10 rounded-md border bg-gray-50 flex items-center justify-center text-gray-300">
+                        <ImageOff className="h-4 w-4" />
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="font-mono text-sm">{barang.kode_barang}</TableCell>
                   <TableCell className="font-medium">{barang.nama_barang}</TableCell>
                   <TableCell>
@@ -468,7 +533,7 @@ export default function BarangPage() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
+                <TableCell colSpan={7} className="h-24 text-center">
                   Tidak ada data barang yang ditemukan.
                 </TableCell>
               </TableRow>
@@ -569,6 +634,20 @@ export default function BarangPage() {
                 placeholder="Deskripsi barang (opsional)"
               />
             </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit_gambar">Foto Barang (opsional, maks. 2MB)</Label>
+              <div className="flex items-center gap-3">
+                {imagePreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={imagePreview} alt="Pratinjau" className="h-16 w-16 rounded-md border object-cover shrink-0" />
+                ) : (
+                  <div className="h-16 w-16 rounded-md border bg-gray-50 flex items-center justify-center text-gray-300 shrink-0">
+                    <ImageOff className="h-6 w-6" />
+                  </div>
+                )}
+                <Input id="edit_gambar" type="file" accept="image/jpeg,image/jpg,image/png,image/webp" onChange={handleImageChange} />
+              </div>
+            </div>
             <div className="flex justify-end gap-2 pt-4">
               <Button
                 type="button"
@@ -581,8 +660,9 @@ export default function BarangPage() {
               >
                 Batal
               </Button>
-              <Button type="submit" className="bg-[#00C559] hover:bg-[#00A047]" disabled={loading}>
-                {loading ? "Menyimpan..." : "Update"}
+              <Button type="submit" className="bg-[#00C559] hover:bg-[#00A047]" disabled={loading || uploadingImage}>
+                <Upload className="w-4 h-4 mr-2" />
+                {uploadingImage ? "Mengunggah foto..." : loading ? "Menyimpan..." : "Update"}
               </Button>
             </div>
           </form>

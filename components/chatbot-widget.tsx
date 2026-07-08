@@ -34,6 +34,10 @@ export function ChatbotWidget() {
     const question = input.trim()
     if (!question || loading) return
 
+    // Kirim beberapa giliran percakapan terakhir supaya pertanyaan lanjutan
+    // (mis. "berapa harganya?") tetap dipahami dalam konteks topik sebelumnya.
+    const history = messages.slice(-6)
+
     setMessages((prev) => [...prev, { role: "user", text: question }])
     setInput("")
     setLoading(true)
@@ -42,7 +46,7 @@ export function ChatbotWidget() {
       const response = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: question }),
+        body: JSON.stringify({ message: question, history }),
       })
       const data = await response.json()
       setMessages((prev) => [

@@ -67,8 +67,8 @@ export async function POST(request: Request) {
     const kode = `BRG-${String(next_num).padStart(4, "0")}`
 
     await query(
-      `INSERT INTO barang (kode_barang, nama_barang, kategori_id, harga, stok, stok_minimum, satuan, deskripsi)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO barang (kode_barang, nama_barang, kategori_id, harga, stok, stok_minimum, satuan, deskripsi, gambar)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         kode,
         String(body.nama_barang).trim(),
@@ -78,6 +78,7 @@ export async function POST(request: Request) {
         Number(body.stok_minimum ?? 10),
         String(body.satuan ?? "pcs"),
         String(body.deskripsi ?? ""),
+        typeof body.gambar === "string" && body.gambar.trim() ? body.gambar.trim() : null,
       ],
     )
 
@@ -103,8 +104,8 @@ export async function PUT(request: Request) {
       `UPDATE barang
        SET nama_barang = $1, kategori_id = $2, harga = $3, stok = $4,
            stok_minimum = $5, satuan = $6, deskripsi = $7,
-           status = COALESCE($8, status), updated_at = NOW()
-       WHERE id = $9
+           status = COALESCE($8, status), gambar = $9, updated_at = NOW()
+       WHERE id = $10
        RETURNING id`,
       [
         String(body.nama_barang).trim(),
@@ -115,6 +116,7 @@ export async function PUT(request: Request) {
         String(body.satuan ?? "pcs"),
         String(body.deskripsi ?? ""),
         body.status ?? null,
+        typeof body.gambar === "string" && body.gambar.trim() ? body.gambar.trim() : null,
         Number(body.id),
       ],
     )
