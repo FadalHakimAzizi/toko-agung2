@@ -10,6 +10,7 @@ import { NextResponse } from "next/server"
 import { query } from "@/lib/db"
 import { requireAdmin } from "@/lib/auth"
 import { parsePagination, buildPaginationMeta, splitCountedRows } from "@/lib/pagination"
+import { embedText, toVectorLiteral } from "@/lib/embedding"
 
 const BASE_FIELDS = `b.id, b.kode_barang, b.nama_barang,
          COALESCE(k.nama_kategori, 'Tanpa Kategori') AS nama_kategori,
@@ -58,6 +59,22 @@ export async function GET(request: Request) {
   }
 }
 
+// Membuat & menyimpan embedding barang (untuk pencarian semantic chatbot RAG)
+// setiap kali barang ditambah/diedit, supaya selalu up to date tanpa perlu
+// admin ingat menjalankan `npm run db:embed` manual. Best-effort: kalau
+// EMBEDDING_API_KEY belum diatur atau panggilan API gagal, barang tetap
+// tersimpan seperti biasa — embedding-nya cukup dibuat belakangan lewat
+// `npm run db:embed`.
+async function embedAndSaveBarang(id: number, namaBarang: string, deskripsi: string): Promise<void> {
+  try {
+    const vector = await embedText(`${namaBarang}. ${deskripsi}`.trim())
+    if (!vector) return
+    await query("UPDATE barang SET embedding = $1::vector WHERE id = $2", [toVectorLiteral(vector), id])
+  } catch (err) {
+    console.error("Gagal membuat embedding barang:", err)
+  }
+}
+
 // Validasi input barang (dipakai POST dan PUT)
 function validateBarang(body: Record<string, unknown>) {
   const nama = String(body.nama_barang ?? "").trim()
@@ -90,21 +107,24 @@ export async function POST(request: Request) {
     )
     const kode = `BRG-${String(next_num).padStart(4, "0")}`
 
-    await query(
+    const namaBarang = String(body.nama_barang).trim()
+    const deskripsi = String(body.deskripsi ?? "")
+    const [{ id: barangId }] = await query<{ id: number }>(
       `INSERT INTO barang (kode_barang, nama_barang, kategori_id, harga, stok, stok_minimum, satuan, deskripsi, gambar)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
       [
         kode,
-        String(body.nama_barang).trim(),
+        namaBarang,
         Number(body.kategori_id),
         Number(body.harga),
         Number(body.stok),
         Number(body.stok_minimum ?? 10),
         String(body.satuan ?? "pcs"),
-        String(body.deskripsi ?? ""),
+        deskripsi,
         typeof body.gambar === "string" && body.gambar.trim() ? body.gambar.trim() : null,
       ],
     )
+    await embedAndSaveBarang(barangId, namaBarang, deskripsi)
 
     return NextResponse.json({ message: "Barang berhasil ditambahkan" }, { status: 201 })
   } catch (err) {
@@ -124,7 +144,9 @@ export async function PUT(request: Request) {
     const errorMsg = validateBarang(body)
     if (errorMsg) return NextResponse.json({ message: errorMsg }, { status: 400 })
 
-    const result = await query(
+    const namaBarang = String(body.nama_barang).trim()
+    const deskripsi = String(body.deskripsi ?? "")
+    const result = await query<{ id: number }>(
       `UPDATE barang
        SET nama_barang = $1, kategori_id = $2, harga = $3, stok = $4,
            stok_minimum = $5, satuan = $6, deskripsi = $7,
@@ -132,13 +154,13 @@ export async function PUT(request: Request) {
        WHERE id = $10
        RETURNING id`,
       [
-        String(body.nama_barang).trim(),
+        namaBarang,
         Number(body.kategori_id),
         Number(body.harga),
         Number(body.stok),
         Number(body.stok_minimum ?? 10),
         String(body.satuan ?? "pcs"),
-        String(body.deskripsi ?? ""),
+        deskripsi,
         body.status ?? null,
         typeof body.gambar === "string" && body.gambar.trim() ? body.gambar.trim() : null,
         Number(body.id),
@@ -148,6 +170,7 @@ export async function PUT(request: Request) {
     if (result.length === 0) {
       return NextResponse.json({ message: "Barang tidak ditemukan" }, { status: 404 })
     }
+    await embedAndSaveBarang(result[0].id, namaBarang, deskripsi)
     return NextResponse.json({ message: "Barang berhasil diupdate" })
   } catch (err) {
     console.error("Barang PUT error:", err)

@@ -15,17 +15,21 @@ import { embedText, toVectorLiteral } from "@/lib/embedding"
 
 export const REFUSAL_MESSAGE = "Maaf, saya hanya dapat membantu informasi seputar Toko Alat Tulis Agung."
 
-// Ambang jarak cosine (pgvector <=>). Entri knowledge base dengan jarak lebih
-// besar dianggap tidak relevan dan dibuang. 0 = identik, semakin kecil semakin mirip.
+// Ambang jarak cosine (pgvector <=>). Hasil dengan jarak lebih besar dianggap
+// tidak relevan dan dibuang. 0 = identik, semakin kecil semakin mirip.
 const KB_DISTANCE_THRESHOLD = 0.6
+const PRODUK_DISTANCE_THRESHOLD = 0.6
 
-// Kata umum bahasa Indonesia yang tidak dipakai sebagai kata kunci pencarian
+// Kata umum bahasa Indonesia yang tidak dipakai sebagai kata kunci pencarian.
+// Termasuk kata konfirmasi singkat ("iya", "oke", dst.) supaya balasan seperti
+// itu dianggap TIDAK membawa topik baru — bukan kata kunci pencarian barang.
 const STOPWORDS = new Set([
   "yang", "untuk", "dengan", "atau", "dan", "apa", "apakah", "berapa", "bagaimana",
   "dimana", "di", "ke", "dari", "ada", "itu", "ini", "saya", "kamu", "anda", "kah",
   "bisa", "boleh", "mau", "ingin", "tolong", "mohon", "ya", "tidak", "kak", "min",
   "dong", "sih", "nya", "harga", "stok", "stock", "barang", "produk", "jual", "beli",
   "tersedia", "punya", "masih", "berapaan", "info", "tentang", "toko",
+  "iya", "oke", "sip", "siap", "yap", "baik", "lihat", "detail", "detailnya",
 ])
 
 // Sapaan singkat (tanpa pertanyaan lain menyertai) — dibalas sapaan ramah
@@ -66,20 +70,27 @@ function extractKeywords(question: string): string[] {
 }
 
 export interface RetrievedContext {
-  produk: { nama_barang: string; harga: number; stok: number; satuan: string; kategori: string }[]
+  produk: { nama_barang: string; harga: number; stok: number; satuan: string; kategori: string; deskripsi?: string }[]
   pengetahuan: { judul: string; konten: string }[]
   infoToko: Record<string, string>
   laporanAdmin: string | null
   sumber: string[]
 }
 
+export interface ChatHistoryItem {
+  role: "user" | "bot"
+  text: string
+}
+
+const PRODUK_FIELDS = `b.nama_barang, b.harga::float8 AS harga, b.stok, b.satuan, b.deskripsi,
+            COALESCE(k.nama_kategori, 'Tanpa Kategori') AS kategori`
+
 async function cariProdukByKeywords(keywords: string[]) {
   if (keywords.length === 0) return []
   const likeParams = keywords.map((k) => `%${k}%`)
   const conditions = likeParams.map((_, i) => `b.nama_barang ILIKE $${i + 1}`).join(" OR ")
   return query<RetrievedContext["produk"][number]>(
-    `SELECT b.nama_barang, b.harga::float8 AS harga, b.stok, b.satuan,
-            COALESCE(k.nama_kategori, 'Tanpa Kategori') AS kategori
+    `SELECT ${PRODUK_FIELDS}
      FROM barang b
      LEFT JOIN kategori k ON k.id = b.kategori_id
      WHERE b.status = 'aktif' AND (${conditions})
@@ -88,44 +99,87 @@ async function cariProdukByKeywords(keywords: string[]) {
   )
 }
 
+// Kumpulkan kata kunci dari beberapa giliran PENGGUNA terakhir (gabungan,
+// bukan cuma giliran tepat sebelumnya) — supaya topik seperti "buku" tetap
+// "diingat" walau di antaranya ada beberapa balasan singkat tanpa kata kunci
+// sendiri (mis. "boleh", "iya", "berapa").
+function collectHistoryKeywords(history: ChatHistoryItem[], maxTurns = 4): string[] {
+  const kataKunci = history
+    .filter((h) => h.role === "user")
+    .slice(-maxTurns)
+    .flatMap((h) => extractKeywords(h.text))
+  return Array.from(new Set(kataKunci))
+}
+
 // ---------- Tahap RETRIEVAL ----------
-// `lastUserQuestion`: pertanyaan pengguna sebelumnya dalam percakapan yang
-// sama (jika ada). Dipakai sebagai fallback saat pertanyaan saat ini adalah
-// pertanyaan lanjutan tanpa nama produk (mis. "berapa harganya?" setelah
-// sebelumnya menanyakan "apakah penggaris ready?") supaya topik tetap nyambung.
+// `history`: beberapa giliran percakapan terakhir (opsional). Dipakai sebagai
+// fallback saat pertanyaan saat ini TIDAK membawa kata kunci sendiri (mis.
+// "berapa?", "boleh", "iya" setelah sebelumnya menanyakan "apakah ada buku?")
+// supaya topik tetap nyambung alih-alih menjawab ngasal/di luar topik.
 export async function retrieveContext(
   question: string,
   isAdmin: boolean,
-  lastUserQuestion = "",
+  history: ChatHistoryItem[] = [],
 ): Promise<RetrievedContext> {
   const q = question.toLowerCase()
   const keywords = extractKeywords(question)
   const sumber: string[] = []
 
-  // 1) Produk dari database: dicari jika ada kata kunci, atau pertanyaan
-  //    menyebut harga/stok/produk secara umum
+  // Vektor embedding pertanyaan (kalau EMBEDDING_API_KEY dikonfigurasi) —
+  // dihitung sekali lalu dipakai ulang untuk pencarian semantic PRODUK
+  // maupun KNOWLEDGE BASE, supaya tidak perlu 2x panggil API embedding
+  // untuk pertanyaan yang sama.
+  const questionVector = await embedText(question)
+
+  // 1) Produk dari database. Tiga jalur berurutan (yang pertama ketemu dipakai):
+  //    a. keyword (ILIKE nama barang) — cepat & presisi untuk nama persis
+  //    b. semantic (embedding) — paham sinonim/makna, mis. "alat buat gambar"
+  //       tetap menemukan "Pensil warna" / "Cat air" walau nama produknya
+  //       tidak literally mengandung kata "gambar"
+  //    c. lanjutan topik percakapan sebelumnya (kalau pertanyaan saat ini
+  //       sama sekali tidak membawa kata kunci sendiri, mis. "berapa?")
   const tanyaProduk = /harga|stok|stock|produk|barang|jual|tersedia|katalog|beli/.test(q)
   let produk: RetrievedContext["produk"] = await cariProdukByKeywords(keywords)
+  let produkSource: string | null = produk.length > 0 ? "database produk" : null
 
   if (produk.length === 0 && tanyaProduk && /apa saja|daftar|list|semua|katalog/.test(q)) {
     // Pertanyaan daftar produk secara umum
     produk = await query(
-      `SELECT b.nama_barang, b.harga::float8 AS harga, b.stok, b.satuan,
-              COALESCE(k.nama_kategori, 'Tanpa Kategori') AS kategori
+      `SELECT ${PRODUK_FIELDS}
        FROM barang b LEFT JOIN kategori k ON k.id = b.kategori_id
        WHERE b.status = 'aktif' ORDER BY b.nama_barang LIMIT 15`,
     )
+    if (produk.length > 0) produkSource = "database produk"
   }
 
-  // Fallback percakapan: pertanyaan saat ini tidak menyebut produk apa pun
-  // (mis. "berapa harganya?") tapi masih seputar harga/stok — coba cari
-  // produk dari kata kunci pertanyaan SEBELUMNYA agar topik tetap nyambung.
-  if (produk.length === 0 && tanyaProduk && lastUserQuestion) {
-    produk = await cariProdukByKeywords(extractKeywords(lastUserQuestion))
-    if (produk.length > 0) sumber.push("database produk (lanjutan topik sebelumnya)")
-  } else if (produk.length > 0) {
-    sumber.push("database produk")
+  if (produk.length === 0 && questionVector) {
+    const rows = await query<RetrievedContext["produk"][number] & { distance: number }>(
+      `SELECT ${PRODUK_FIELDS}, (b.embedding <=> $1::vector) AS distance
+       FROM barang b LEFT JOIN kategori k ON k.id = b.kategori_id
+       WHERE b.status = 'aktif' AND b.embedding IS NOT NULL
+       ORDER BY b.embedding <=> $1::vector
+       LIMIT 5`,
+      [toVectorLiteral(questionVector)],
+    )
+    const relevan = rows.filter((r) => Number(r.distance) <= PRODUK_DISTANCE_THRESHOLD)
+    if (relevan.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      produk = relevan.map(({ distance, ...rest }) => rest)
+      produkSource = "database produk (pencarian semantic)"
+    }
   }
+
+  // Fallback percakapan: pertanyaan saat ini TIDAK membawa kata kunci sendiri
+  // sama sekali (bukan cuma "tidak menyebut produk" — kalau pertanyaan
+  // membawa subjek baru mis. "siapa presiden indonesia", jangan dipaksa
+  // nyambung ke topik lama). Kalau kosong, baru gunakan kata kunci gabungan
+  // dari giliran pengguna sebelumnya.
+  if (produk.length === 0 && keywords.length === 0 && history.length > 0) {
+    produk = await cariProdukByKeywords(collectHistoryKeywords(history))
+    if (produk.length > 0) produkSource = "database produk (lanjutan topik sebelumnya)"
+  }
+
+  if (produkSource) sumber.push(produkSource)
 
   // 2) Knowledge base — RAG retrieval.
   //    Utamakan SEMANTIC SEARCH via embedding + pgvector (paham makna/parafrase);
@@ -133,7 +187,6 @@ export async function retrieveContext(
   //    keyword search (ILIKE). Kedua jalur tetap "retrieval augmented".
   let pengetahuan: RetrievedContext["pengetahuan"] = []
 
-  const questionVector = await embedText(question)
   if (questionVector) {
     const rows = await query<{ judul: string; konten: string; distance: number }>(
       `SELECT judul, konten, (embedding <=> $1::vector) AS distance
@@ -195,12 +248,12 @@ export function buildContextText(ctx: RetrievedContext): string {
 
   if (ctx.produk.length > 0) {
     bagian.push(
-      "DATA PRODUK (dari database):\n" +
+      "DATA PRODUK (dari database — HANYA field berikut yang boleh dipakai, jangan tambahkan atribut lain seperti ukuran/bahan/kapasitas yang tidak disebutkan):\n" +
         ctx.produk
-          .map(
-            (p) =>
-              `- ${p.nama_barang} (${p.kategori}): harga Rp ${p.harga.toLocaleString("id-ID")}/${p.satuan}, stok ${p.stok}`,
-          )
+          .map((p) => {
+            const deskripsi = p.deskripsi?.trim() ? ` — ${p.deskripsi.trim()}` : ""
+            return `- ${p.nama_barang} (${p.kategori}): harga Rp ${p.harga.toLocaleString("id-ID")}/${p.satuan}, stok ${p.stok}${deskripsi}`
+          })
           .join("\n"),
     )
   }
@@ -248,7 +301,8 @@ export function buildTemplateAnswer(question: string, ctx: RetrievedContext): st
         ctx.produk
           .map((p) => {
             const stokInfo = p.stok > 0 ? `stok tersedia ${p.stok} ${p.satuan}` : "stok sedang habis"
-            return `• ${p.nama_barang} — Rp ${p.harga.toLocaleString("id-ID")}/${p.satuan} (${stokInfo})`
+            const deskripsi = p.deskripsi?.trim() ? ` — ${p.deskripsi.trim()}` : ""
+            return `• ${p.nama_barang} — Rp ${p.harga.toLocaleString("id-ID")}/${p.satuan} (${stokInfo})${deskripsi}`
           })
           .join("\n"),
     )
@@ -281,11 +335,6 @@ export function buildTemplateAnswer(question: string, ctx: RetrievedContext): st
   return jawaban.join("\n\n")
 }
 
-export interface ChatHistoryItem {
-  role: "user" | "bot"
-  text: string
-}
-
 // ---------- Tahap GENERATION: LLM (jika AI_API_KEY tersedia) ----------
 // `history`: beberapa giliran percakapan terakhir (opsional) supaya LLM bisa
 // memahami pertanyaan lanjutan yang merujuk ke topik sebelumnya, dan supaya
@@ -303,18 +352,18 @@ export async function generateLlmAnswer(
 
   const systemPrompt =
     "Kamu adalah asisten virtual Toko Alat Tulis Agung, ramah dan santai seperti mengobrol langsung dengan pelanggan di toko. " +
-    "Balas dengan bahasa Indonesia yang natural dan manusiawi (boleh membalas sapaan dengan sapaan singkat), jangan kaku atau terasa seperti template. " +
-    "Pakai RIWAYAT PERCAKAPAN sebelumnya untuk memahami pertanyaan lanjutan yang tidak menyebut ulang subjeknya " +
-    "(mis. jika sebelumnya membahas satu produk lalu pelanggan tanya \"berapa harganya?\", itu merujuk ke produk yang sama). " +
-    "Jawab HANYA berdasarkan KONTEKS yang diberikan pada giliran ini; KONTEKS bisa memuat beberapa potongan informasi, pakai bagian yang relevan dan abaikan yang tidak relevan. " +
+    "Balas dengan bahasa Indonesia yang natural dan manusiawi (boleh membalas sapaan dengan sapaan singkat), jangan kaku, jangan mengulang balik kalimat pelanggan secara verbatim, dan jangan terasa seperti template. " +
+    "Pakai RIWAYAT PERCAKAPAN sebelumnya untuk memahami pertanyaan lanjutan yang tidak menyebut ulang subjeknya, TERMASUK balasan singkat seperti \"boleh\", \"iya\", atau \"berapa\" saja " +
+    "(mis. jika sebelumnya membahas satu produk lalu pelanggan hanya membalas \"boleh\" atau \"berapa\", itu tetap merujuk ke produk yang sama — jangan pindah topik ke hal lain yang kebetulan ada di KONTEKS seperti jam buka). " +
+    "Jawab HANYA berdasarkan KONTEKS yang diberikan pada giliran ini. KONTEKS bisa memuat beberapa potongan informasi (data produk, pengetahuan toko, info toko, laporan) — pakai HANYA bagian yang benar-benar relevan dengan pertanyaan, dan abaikan sisanya sepenuhnya (jangan menjawab pakai info toko/jam buka kalau yang ditanya soal produk). " +
+    "SANGAT PENTING: jangan pernah mengarang atau menambah-nambah detail apa pun yang tidak tertulis eksplisit di KONTEKS — termasuk harga, stok, ukuran, bahan, kapasitas, isi, atau spesifikasi lain. Kalau KONTEKS tidak menyebutkan suatu detail, katakan tidak tahu / tidak tersedia informasinya, jangan menebak. " +
     "Tolak HANYA jika pertanyaan benar-benar di luar topik toko (stok, harga, produk, FAQ, profil, alamat, jam operasional, kebijakan pembayaran, laporan) " +
     "dan tidak bisa dijawab dari KONTEKS maupun riwayat percakapan. " +
-    `Saat menolak, jawab persis: "${REFUSAL_MESSAGE}" ` +
-    "Jangan pernah mengarang data harga/stok yang tidak ada di konteks."
+    `Saat menolak, jawab persis: "${REFUSAL_MESSAGE}"`
 
   // Sertakan beberapa giliran terakhir sebagai riwayat chat asli (bukan
   // dirangkum jadi teks) supaya model bisa menelusuri rujukan secara natural.
-  const historyMessages = history.slice(-6).map((h) => ({
+  const historyMessages = history.slice(-10).map((h) => ({
     role: h.role === "user" ? ("user" as const) : ("assistant" as const),
     content: h.text,
   }))
@@ -328,7 +377,7 @@ export async function generateLlmAnswer(
       },
       body: JSON.stringify({
         model,
-        temperature: 0.3,
+        temperature: 0.2,
         max_tokens: 500,
         messages: [
           { role: "system", content: systemPrompt },

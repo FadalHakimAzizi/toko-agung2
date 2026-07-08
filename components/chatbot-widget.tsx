@@ -9,6 +9,7 @@ import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Bot, Database, Send, X } from "lucide-react"
+import { formatSumberLabels } from "@/lib/sumber-labels"
 
 interface ChatMessage {
   role: "user" | "bot"
@@ -18,28 +19,6 @@ interface ChatMessage {
 
 const SAPAAN =
   "Halo! Saya asisten virtual Toko Alat Tulis Agung. Silakan tanya seputar stok, harga produk, jam buka, alamat, atau cara pembayaran. 😊"
-
-// Label ramah untuk tiap jenis sumber retrieval (lihat lib/rag.ts) — ditampilkan
-// sebagai "citation" di bawah jawaban bot, supaya terlihat jelas bahwa jawaban
-// diambil dari data toko yang sebenarnya (ciri khas RAG), bukan sekadar
-// ngobrol bebas seperti chatbot generik.
-const SOURCE_LABELS: Record<string, string> = {
-  "database produk": "Stok & harga real-time",
-  "database produk (lanjutan topik sebelumnya)": "Stok & harga (lanjutan topik)",
-  "knowledge base (semantic)": "Basis pengetahuan toko",
-  "knowledge base": "Basis pengetahuan toko",
-  "laporan admin": "Laporan real-time",
-}
-
-function formatSumber(raw: string | null | undefined): string[] {
-  if (!raw) return []
-  const labels = raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => SOURCE_LABELS[s] ?? s)
-  return Array.from(new Set(labels))
-}
 
 export function ChatbotWidget() {
   const [isOpen, setIsOpen] = useState(false)
@@ -59,7 +38,7 @@ export function ChatbotWidget() {
 
     // Kirim beberapa giliran percakapan terakhir supaya pertanyaan lanjutan
     // (mis. "berapa harganya?") tetap dipahami dalam konteks topik sebelumnya.
-    const history = messages.slice(-6)
+    const history = messages.slice(-10)
 
     setMessages((prev) => [...prev, { role: "user", text: question }])
     setInput("")
@@ -111,7 +90,7 @@ export function ChatbotWidget() {
 
           <div className="h-80 overflow-y-auto p-3 space-y-3 bg-gray-50">
             {messages.map((msg, i) => {
-              const sources = msg.role === "bot" ? formatSumber(msg.sumber) : []
+              const sources = msg.role === "bot" ? formatSumberLabels(msg.sumber) : []
               return (
                 <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
                   <div

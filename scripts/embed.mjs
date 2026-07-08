@@ -54,8 +54,7 @@ async function embed(text) {
   return values
 }
 
-async function main() {
-  await client.connect()
+async function embedKnowledgeBase() {
   const { rows } = await client.query(
     "SELECT id, judul, konten FROM knowledge_base WHERE embedding IS NULL ORDER BY id",
   )
@@ -82,7 +81,47 @@ async function main() {
       console.error(`  ✗ Gagal: ${row.judul} — ${err.message}`)
     }
   }
-  console.log(`✅ Selesai. ${ok} dari ${rows.length} entri berhasil di-embed.`)
+  console.log(`✅ Knowledge base selesai. ${ok} dari ${rows.length} entri berhasil di-embed.`)
+}
+
+// Barang (produk) juga di-embed supaya chatbot bisa mencari secara semantic
+// (mis. "alat buat gambar" tetap menemukan "Pensil warna" / "Cat air" walau
+// nama produknya tidak literally mengandung kata "gambar"). Biasanya sudah
+// otomatis terisi saat admin menambah/mengedit barang (lihat
+// app/api/barang/route.ts); loop ini jaring pengaman untuk data lama/seed.
+async function embedBarang() {
+  const { rows } = await client.query(
+    "SELECT id, nama_barang, deskripsi FROM barang WHERE embedding IS NULL ORDER BY id",
+  )
+
+  if (rows.length === 0) {
+    console.log("✅ Semua barang sudah memiliki embedding.")
+    return
+  }
+
+  console.log(`▶ Membuat embedding untuk ${rows.length} barang...`)
+  let ok = 0
+  for (const row of rows) {
+    const teks = `${row.nama_barang}. ${row.deskripsi ?? ""}`.trim()
+    try {
+      const vec = await embed(teks)
+      await client.query("UPDATE barang SET embedding = $1::vector WHERE id = $2", [
+        `[${vec.join(",")}]`,
+        row.id,
+      ])
+      ok++
+      console.log(`  ✓ [${ok}/${rows.length}] ${row.nama_barang}`)
+    } catch (err) {
+      console.error(`  ✗ Gagal: ${row.nama_barang} — ${err.message}`)
+    }
+  }
+  console.log(`✅ Barang selesai. ${ok} dari ${rows.length} barang berhasil di-embed.`)
+}
+
+async function main() {
+  await client.connect()
+  await embedKnowledgeBase()
+  await embedBarang()
 }
 
 main()

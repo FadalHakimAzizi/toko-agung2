@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BadgeCheck, BarChart3, FileText, Home, Package, Settings, ShoppingCart } from "lucide-react"
+import { BadgeCheck, BarChart3, Bot, FileText, Home, Package, Settings, ShoppingCart } from "lucide-react"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 
@@ -32,6 +32,11 @@ export const sidebarItems = [
     title: "Laporan",
     href: "/dashboard/laporan",
     icon: FileText,
+  },
+  {
+    title: "Riwayat Chatbot",
+    href: "/dashboard/chatbot",
+    icon: Bot,
   },
   {
     title: "Pengaturan",
