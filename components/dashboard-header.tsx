@@ -11,11 +11,15 @@ import Link from "next/link"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 import { sidebarItems } from "@/components/sidebar-nav"
+import { useCurrentUser } from "@/lib/use-current-user"
 
 export function DashboardHeader() {
   const router = useRouter()
   const pathname = usePathname()
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
+  const { user } = useCurrentUser()
+  const displayName = user?.nama_lengkap || "Admin"
+  const initial = displayName.trim()[0]?.toUpperCase() || "A"
 
   const handleLogout = async () => {
     // Hapus sesi di server (cookie httpOnly) lalu bersihkan info tampilan
@@ -84,17 +88,17 @@ export function DashboardHeader() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center gap-2">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-[#00C559] text-white">A</AvatarFallback>
+                  <AvatarFallback className="bg-[#00C559] text-white">{initial}</AvatarFallback>
                 </Avatar>
-                <span className="text-sm font-medium">Admin</span>
+                <span className="text-sm font-medium">{displayName}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/dashboard/profil")}>
                 <User className="mr-2 h-4 w-4" />
                 Profil
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/dashboard/pengaturan")}>
                 <Settings className="mr-2 h-4 w-4" />
                 Pengaturan
               </DropdownMenuItem>
