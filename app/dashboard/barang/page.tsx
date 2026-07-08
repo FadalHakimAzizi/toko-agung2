@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { PaginationBar } from "@/components/ui/pagination-bar"
+import type { PaginationMeta } from "@/lib/pagination"
 
 // Types
 interface Barang {
@@ -46,6 +48,8 @@ export default function BarangPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState<PaginationMeta | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -64,24 +68,31 @@ export default function BarangPage() {
 
   // API internal Next.js (menggantikan API PHP eksternal yang sudah tidak aktif)
   const API_BASE = "/api"
+  const PAGE_SIZE = 20
 
-  // Fetch data barang
-  const fetchBarang = async (search = "") => {
+  // Fetch data barang (server-side search, filter kategori, & pagination)
+  const fetchBarang = async (targetPage: number, search: string, kategori: string) => {
     try {
       setLoading(true)
-      const url = search ? `${API_BASE}/barang?s=${encodeURIComponent(search)}` : `${API_BASE}/barang`
-      const response = await fetch(url)
+      const params = new URLSearchParams({ page: String(targetPage), limit: String(PAGE_SIZE) })
+      if (search) params.set("s", search)
+      if (kategori && kategori !== "Semua") params.set("kategori", kategori)
+
+      const response = await fetch(`${API_BASE}/barang?${params.toString()}`)
       const data = await response.json()
 
       if (response.ok && data.records) {
         setBarangList(data.records)
+        setPagination(data.pagination ?? null)
       } else {
         setBarangList([])
+        setPagination(null)
       }
     } catch (error) {
       console.error("Error fetching barang:", error)
       setError("Gagal memuat data barang")
       setBarangList([])
+      setPagination(null)
     } finally {
       setLoading(false)
     }
@@ -101,30 +112,25 @@ export default function BarangPage() {
     }
   }
 
-  // Load data saat komponen dimount
   useEffect(() => {
-    fetchBarang()
     fetchKategori()
   }, [])
 
-  // Handle search
+  // Cari/filter kategori mengubah hasil → kembali ke halaman 1 (debounce
+  // untuk pencarian supaya tidak fetch di setiap ketikan)
   useEffect(() => {
     const delayedSearch = setTimeout(() => {
-      if (searchTerm) {
-        fetchBarang(searchTerm)
-      } else {
-        fetchBarang()
-      }
-    }, 500)
+      setPage(1)
+      fetchBarang(1, searchTerm, selectedCategory)
+    }, 400)
 
     return () => clearTimeout(delayedSearch)
-  }, [searchTerm])
+  }, [searchTerm, selectedCategory])
 
-  // Filter berdasarkan kategori
-  const filteredBarang = barangList.filter((barang) => {
-    if (selectedCategory === "Semua") return true
-    return barang.nama_kategori === selectedCategory
-  })
+  const goToPage = (targetPage: number) => {
+    setPage(targetPage)
+    fetchBarang(targetPage, searchTerm, selectedCategory)
+  }
 
   // Handle form input change
   const handleInputChange = (field: string, value: string) => {
@@ -195,7 +201,7 @@ export default function BarangPage() {
         setSuccess("Barang berhasil ditambahkan!")
         setIsAddDialogOpen(false)
         resetForm()
-        fetchBarang()
+        fetchBarang(page, searchTerm, selectedCategory)
       } else {
         setError(data.message || "Gagal menambahkan barang")
       }
@@ -239,7 +245,7 @@ export default function BarangPage() {
         setIsEditDialogOpen(false)
         setEditingBarang(null)
         resetForm()
-        fetchBarang()
+        fetchBarang(page, searchTerm, selectedCategory)
       } else {
         setError(data.message || "Gagal mengupdate barang")
       }
@@ -271,7 +277,11 @@ export default function BarangPage() {
 
       if (response.ok) {
         setSuccess("Barang berhasil dihapus!")
-        fetchBarang()
+        // Kalau barang yang dihapus adalah satu-satunya di halaman ini
+        // (dan bukan halaman pertama), mundur satu halaman biar tidak kosong.
+        const nextPage = barangList.length === 1 && page > 1 ? page - 1 : page
+        setPage(nextPage)
+        fetchBarang(nextPage, searchTerm, selectedCategory)
       } else {
         setError(data.message || "Gagal menghapus barang")
       }
@@ -302,8 +312,9 @@ export default function BarangPage() {
     setIsEditDialogOpen(true)
   }
 
-  // Get unique categories for filter
-  const categories = ["Semua", ...Array.from(new Set(barangList.map((b) => b.nama_kategori)))]
+  // Daftar kategori untuk filter — dari kategoriList (semua kategori), bukan
+  // dari barangList, karena barangList sekarang hanya berisi 1 halaman data.
+  const categories = ["Semua", ...kategoriList.map((k) => k.nama_kategori)]
 
   return (
     <div className="flex flex-col gap-6">
@@ -495,8 +506,8 @@ export default function BarangPage() {
                   Memuat data...
                 </TableCell>
               </TableRow>
-            ) : filteredBarang.length > 0 ? (
-              filteredBarang.map((barang) => (
+            ) : barangList.length > 0 ? (
+              barangList.map((barang) => (
                 <TableRow key={barang.id}>
                   <TableCell>
                     {barang.gambar ? (
@@ -541,6 +552,7 @@ export default function BarangPage() {
           </TableBody>
         </Table>
       </div>
+      {pagination && <PaginationBar pagination={pagination} onPageChange={goToPage} disabled={loading} />}
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>

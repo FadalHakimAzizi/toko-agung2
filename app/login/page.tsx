@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,8 +11,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Eye, EyeOff, Lock, User, ArrowLeft } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
+import { useCurrentUser } from "@/lib/use-current-user"
 
 export default function LoginPage() {
+  // Kalau ternyata sudah login, tidak perlu menampilkan form login lagi —
+  // langsung arahkan ke halaman yang sesuai perannya.
+  const { user, loading: checkingSession } = useCurrentUser()
   const [formData, setFormData] = useState({
     username: "",
     password: "",
@@ -20,6 +24,12 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!checkingSession && user) {
+      window.location.href = user.role === "admin" ? "/dashboard" : "/belanja"
+    }
+  }, [checkingSession, user])
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -54,6 +64,18 @@ export default function LoginPage() {
       setError("Tidak dapat terhubung ke server. Pastikan database sudah dikonfigurasi.")
       setIsLoading(false)
     }
+  }
+
+  // Sedang mengecek sesi, atau sudah login (menunggu redirect di atas) — tampilkan loading, bukan form
+  if (checkingSession || user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00C559] mx-auto mb-4"></div>
+          <p className="text-gray-600">Memuat...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

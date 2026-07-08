@@ -4,7 +4,7 @@
 // Akun baru selalu berperan 'user'; akun admin dibuat lewat seeder database.
 import type React from "react"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,9 +14,12 @@ import { Eye, EyeOff, Lock, User, ArrowLeft, UserPlus } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useCurrentUser } from "@/lib/use-current-user"
 
 export default function RegisterPage() {
   const router = useRouter()
+  // Kalau sudah login, tidak perlu mendaftar lagi — arahkan sesuai peran
+  const { user, loading: checkingSession } = useCurrentUser()
   const [formData, setFormData] = useState({
     nama_lengkap: "",
     username: "",
@@ -26,6 +29,12 @@ export default function RegisterPage() {
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!checkingSession && user) {
+      router.push(user.role === "admin" ? "/dashboard" : "/belanja")
+    }
+  }, [checkingSession, user, router])
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -56,6 +65,18 @@ export default function RegisterPage() {
       setError("Tidak dapat terhubung ke server. Coba beberapa saat lagi.")
       setIsLoading(false)
     }
+  }
+
+  // Sedang mengecek sesi, atau sudah login (menunggu redirect di atas) — tampilkan loading, bukan form
+  if (checkingSession || user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00C559] mx-auto mb-4"></div>
+          <p className="text-gray-600">Memuat...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

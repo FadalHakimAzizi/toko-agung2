@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { id as localeId } from "date-fns/locale"
 import { getCart, saveCart, clearCart, cartTotal, type CartItem } from "@/lib/cart"
+import { UserNav } from "@/components/user-nav"
 
 export default function CheckoutPage() {
   const router = useRouter()
@@ -85,11 +86,14 @@ export default function CheckoutPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-20 bg-white border-b shadow-sm">
-        <div className="container mx-auto px-4 py-3 flex items-center gap-3">
-          <Link href="/belanja" className="text-[#2D2D2D] hover:text-[#00C559]">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <h1 className="font-bold text-[#2D2D2D]">Checkout Pesanan</h1>
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Link href="/belanja" className="text-[#2D2D2D] hover:text-[#00C559]">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <h1 className="font-bold text-[#2D2D2D]">Checkout Pesanan</h1>
+          </div>
+          <UserNav />
         </div>
       </header>
 

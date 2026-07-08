@@ -14,6 +14,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { getCart, saveCart, cartCount, type CartItem } from "@/lib/cart"
 import { ChatbotWidget } from "@/components/chatbot-widget"
+import { UserNav } from "@/components/user-nav"
 
 interface Barang {
   id: number
@@ -142,6 +143,7 @@ export default function BelanjaPage() {
                 </span>
               )}
             </Button>
+            <UserNav />
           </div>
         </div>
       </header>

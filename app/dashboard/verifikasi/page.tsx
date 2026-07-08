@@ -16,6 +16,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CheckCircle2, XCircle, Eye, Inbox } from "lucide-react"
 import { format } from "date-fns"
 import { id as localeId } from "date-fns/locale"
+import { PaginationBar } from "@/components/ui/pagination-bar"
+import type { PaginationMeta } from "@/lib/pagination"
 
 interface VerifikasiItem {
   id: number
@@ -59,23 +61,38 @@ export default function VerifikasiPage() {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState<PaginationMeta | null>(null)
+  const PAGE_SIZE = 20
 
-  const fetchRecords = useCallback(async () => {
-    try {
-      setLoading(true)
-      const response = await fetch(`/api/verifikasi?status=${filterStatus}`)
-      const data = await response.json()
-      setRecords(data.records || [])
-    } catch {
-      setRecords([])
-    } finally {
-      setLoading(false)
-    }
-  }, [filterStatus])
+  const fetchRecords = useCallback(
+    async (targetPage: number) => {
+      try {
+        setLoading(true)
+        const response = await fetch(`/api/verifikasi?status=${filterStatus}&page=${targetPage}&limit=${PAGE_SIZE}`)
+        const data = await response.json()
+        setRecords(data.records || [])
+        setPagination(data.pagination ?? null)
+      } catch {
+        setRecords([])
+        setPagination(null)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [filterStatus],
+  )
 
+  // Filter status berubah → kembali ke halaman 1
   useEffect(() => {
-    fetchRecords()
+    setPage(1)
+    fetchRecords(1)
   }, [fetchRecords])
+
+  const goToPage = (targetPage: number) => {
+    setPage(targetPage)
+    fetchRecords(targetPage)
+  }
 
   const openDetail = async (id: number) => {
     setAlasan("")
@@ -109,7 +126,11 @@ export default function VerifikasiPage() {
       setMessage({ type: response.ok ? "success" : "error", text: data.message })
       if (response.ok) {
         setIsDetailOpen(false)
-        fetchRecords()
+        // Kalau ini satu-satunya baris di halaman ini (dan bukan halaman
+        // pertama), mundur satu halaman biar tidak menampilkan halaman kosong.
+        const nextPage = records.length === 1 && page > 1 ? page - 1 : page
+        setPage(nextPage)
+        fetchRecords(nextPage)
       }
     } catch {
       setMessage({ type: "error", text: "Tidak dapat terhubung ke server" })
@@ -195,6 +216,7 @@ export default function VerifikasiPage() {
           </TableBody>
         </Table>
       </div>
+      {pagination && <PaginationBar pagination={pagination} onPageChange={goToPage} disabled={loading} />}
 
       {/* Dialog detail transaksi + aksi verifikasi */}
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>

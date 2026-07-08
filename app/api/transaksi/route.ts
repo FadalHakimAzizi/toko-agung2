@@ -1,10 +1,15 @@
 // API Transaksi — pengganti transaksi/read.php & transaksi/create.php
-// GET  /api/transaksi?start_date=&end_date=  → daftar transaksi + item (admin)
+// GET  /api/transaksi?start_date=&end_date=&page=&limit=  → daftar transaksi + item (admin)
+//      `page`/`limit` opsional — tanpa itu, kembalikan seluruh data yang cocok
+//      filter (perilaku lama). Dengan itu, respons dipaginasi + `pagination` dan
+//      `summary` (total transaksi & total penjualan atas SELURUH data yang cocok
+//      filter, bukan cuma halaman saat ini — supaya kartu ringkasan tetap akurat).
 // POST /api/transaksi                        → transaksi kasir tunai (admin);
 //      pembayaran tunai langsung 'lunas' dan stok langsung berkurang.
 import { NextResponse } from "next/server"
 import { query, withTransaction } from "@/lib/db"
 import { requireAdmin } from "@/lib/auth"
+import { parsePagination, buildPaginationMeta } from "@/lib/pagination"
 
 export async function GET(request: Request) {
   try {
@@ -16,6 +21,7 @@ export async function GET(request: Request) {
     const startDate = searchParams.get("start_date")
     const endDate = searchParams.get("end_date")
     const status = searchParams.get("status")
+    const isPaginated = searchParams.has("page") || searchParams.has("limit")
 
     const conditions: string[] = []
     const params: unknown[] = []
@@ -33,8 +39,7 @@ export async function GET(request: Request) {
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 
-    const records = await query(
-      `SELECT t.id, t.no_faktur, t.tanggal, t.total_item,
+    const baseFields = `t.id, t.no_faktur, t.tanggal, t.total_item,
               t.total_harga::float8 AS total_harga, t.metode_pembayaran, t.status,
               COALESCE(u.nama_lengkap, 'Pelanggan Toko') AS nama_pembeli,
               COALESCE(
@@ -45,15 +50,37 @@ export async function GET(request: Request) {
                    'subtotal', ti.subtotal::float8))
                  FROM transaction_items ti WHERE ti.transaction_id = t.id),
                 '[]'::json
-              ) AS items
-       FROM transactions t
-       LEFT JOIN users u ON u.id = t.user_id
-       ${where}
-       ORDER BY t.tanggal DESC`,
-      params,
-    )
+              ) AS items`
+    const fromClause = `FROM transactions t LEFT JOIN users u ON u.id = t.user_id`
 
-    return NextResponse.json({ records })
+    if (!isPaginated) {
+      const records = await query(
+        `SELECT ${baseFields} ${fromClause} ${where} ORDER BY t.tanggal DESC`,
+        params,
+      )
+      return NextResponse.json({ records })
+    }
+
+    const { page, limit, offset } = parsePagination(searchParams)
+    const rows = await query(
+      `SELECT ${baseFields},
+              COUNT(*) OVER() AS total_count,
+              COALESCE(SUM(t.total_harga) OVER(), 0)::float8 AS total_sum
+       ${fromClause} ${where}
+       ORDER BY t.tanggal DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    )
+    const total = rows.length > 0 ? Number(rows[0].total_count) : 0
+    const totalPenjualan = rows.length > 0 ? Number(rows[0].total_sum) : 0
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const records = rows.map(({ total_count, total_sum, ...rest }) => rest)
+
+    return NextResponse.json({
+      records,
+      pagination: buildPaginationMeta(page, limit, total),
+      summary: { total_transaksi: total, total_penjualan: totalPenjualan },
+    })
   } catch (err) {
     console.error("Transaksi GET error:", err)
     return NextResponse.json({ message: "Gagal memuat data transaksi" }, { status: 500 })

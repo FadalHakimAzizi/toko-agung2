@@ -11,6 +11,8 @@ import { id } from "date-fns/locale"
 import type { DateRange } from "react-day-picker"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
+import { PaginationBar } from "@/components/ui/pagination-bar"
+import type { PaginationMeta } from "@/lib/pagination"
 
 interface Item {
     nama_barang: string;
@@ -30,47 +32,64 @@ interface Laporan {
 // API internal Next.js (menggantikan API PHP eksternal yang sudah tidak aktif)
 const API_BASE = "/api"
 
+const PAGE_SIZE = 20
+
 export default function LaporanPage() {
     const [data, setData] = useState<Laporan[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+    const [pagination, setPagination] = useState<PaginationMeta | null>(null);
+    const [summary, setSummary] = useState({ total_transaksi: 0, total_penjualan: 0 });
 
     useEffect(() => {
         setDateRange({ from: subDays(new Date(), 30), to: new Date() });
     }, []);
 
-    useEffect(() => {
-        const fetchLaporan = async () => {
-            if (!dateRange?.from || !dateRange.to) return;
-            
-            setLoading(true);
-            setError(null);
-            const fromDate = format(dateRange.from, "yyyy-MM-dd");
-            const toDate = format(dateRange.to, "yyyy-MM-dd");
+    const fetchLaporan = async (targetPage: number) => {
+        if (!dateRange?.from || !dateRange.to) return;
 
-            try {
-                const response = await fetch(`${API_BASE}/transaksi?start_date=${fromDate}&end_date=${toDate}`);
-                const result = await response.json();
+        setLoading(true);
+        setError(null);
+        const fromDate = format(dateRange.from, "yyyy-MM-dd");
+        const toDate = format(dateRange.to, "yyyy-MM-dd");
 
-                if (response.ok) {
-                    setData(result.records || []);
-                } else {
-                    throw new Error(result.message || "Gagal mengambil data dari server");
-                }
-            } catch (err) {
-                const errorMessage = err instanceof Error ? err.message : "Terjadi kesalahan.";
-                setError(errorMessage);
-                setData([]);
-            } finally {
-                setLoading(false);
+        try {
+            const response = await fetch(
+                `${API_BASE}/transaksi?start_date=${fromDate}&end_date=${toDate}&page=${targetPage}&limit=${PAGE_SIZE}`,
+            );
+            const result = await response.json();
+
+            if (response.ok) {
+                setData(result.records || []);
+                setPagination(result.pagination ?? null);
+                setSummary(result.summary ?? { total_transaksi: 0, total_penjualan: 0 });
+            } else {
+                throw new Error(result.message || "Gagal mengambil data dari server");
             }
-        };
-        fetchLaporan();
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : "Terjadi kesalahan.";
+            setError(errorMessage);
+            setData([]);
+            setPagination(null);
+            setSummary({ total_transaksi: 0, total_penjualan: 0 });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Rentang tanggal berubah → kembali ke halaman 1
+    useEffect(() => {
+        fetchLaporan(1);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dateRange]);
-    
-    const totalSales = data.reduce((sum, sale) => sum + Number(sale.total_harga), 0)
-    const totalTransactions = data.length
+
+    const goToPage = (targetPage: number) => {
+        fetchLaporan(targetPage);
+    };
+
+    const totalSales = summary.total_penjualan
+    const totalTransactions = summary.total_transaksi
 
     const formatItemNames = (items: Item[] | string): string => {
         if (Array.isArray(items)) {
@@ -193,6 +212,7 @@ export default function LaporanPage() {
                             <TableBody>{renderTableBody()}</TableBody>
                         </Table>
                     </div>
+                    {pagination && <PaginationBar pagination={pagination} onPageChange={goToPage} disabled={loading} />}
                 </CardContent>
             </Card>
         </div>

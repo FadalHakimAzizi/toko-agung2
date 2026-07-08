@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Menu, Phone, MessageCircle, Clock, MapPin, ChevronDown } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import Image from "next/image"
+import { UserNav } from "@/components/user-nav"
 
 const navigationItems = [
   { name: "Beranda", href: "#hero" },
@@ -168,23 +169,9 @@ export function Header() {
               ))}
             </nav>
 
-            {/* Desktop CTA Buttons */}
+            {/* Desktop CTA Buttons — menyesuaikan status login (lihat components/user-nav.tsx) */}
             <div className="hidden lg:flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-[#00C559] text-[#00C559] hover:bg-[#00C559]/5 bg-transparent"
-                onClick={() => (window.location.href = "/belanja")}
-              >
-                Belanja Online
-              </Button>
-              <Button
-                size="sm"
-                className="bg-[#00C559] hover:bg-[#00A047] text-white"
-                onClick={() => (window.location.href = "/login")}
-              >
-                Login
-              </Button>
+              <UserNav />
             </div>
 
             {/* Mobile Menu Button */}
@@ -279,22 +266,8 @@ export function Header() {
                       </Button>
                     </div>
 
-                    {/* Akses belanja online & login dari menu mobile */}
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        className="flex-1 bg-transparent border-[#00C559] text-[#00C559]"
-                        onClick={() => (window.location.href = "/belanja")}
-                      >
-                        Belanja Online
-                      </Button>
-                      <Button
-                        className="flex-1 bg-[#2D2D2D] hover:bg-black text-white"
-                        onClick={() => (window.location.href = "/login")}
-                      >
-                        Login
-                      </Button>
-                    </div>
+                    {/* Akses belanja online & akun dari menu mobile — menyesuaikan status login */}
+                    <UserNav variant="mobile" />
                   </div>
                 </div>
               </SheetContent>

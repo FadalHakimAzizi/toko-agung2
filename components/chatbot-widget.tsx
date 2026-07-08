@@ -8,15 +8,38 @@ import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Bot, Send, X } from "lucide-react"
+import { Bot, Database, Send, X } from "lucide-react"
 
 interface ChatMessage {
   role: "user" | "bot"
   text: string
+  sumber?: string | null
 }
 
 const SAPAAN =
   "Halo! Saya asisten virtual Toko Alat Tulis Agung. Silakan tanya seputar stok, harga produk, jam buka, alamat, atau cara pembayaran. 😊"
+
+// Label ramah untuk tiap jenis sumber retrieval (lihat lib/rag.ts) — ditampilkan
+// sebagai "citation" di bawah jawaban bot, supaya terlihat jelas bahwa jawaban
+// diambil dari data toko yang sebenarnya (ciri khas RAG), bukan sekadar
+// ngobrol bebas seperti chatbot generik.
+const SOURCE_LABELS: Record<string, string> = {
+  "database produk": "Stok & harga real-time",
+  "database produk (lanjutan topik sebelumnya)": "Stok & harga (lanjutan topik)",
+  "knowledge base (semantic)": "Basis pengetahuan toko",
+  "knowledge base": "Basis pengetahuan toko",
+  "laporan admin": "Laporan real-time",
+}
+
+function formatSumber(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  const labels = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => SOURCE_LABELS[s] ?? s)
+  return Array.from(new Set(labels))
+}
 
 export function ChatbotWidget() {
   const [isOpen, setIsOpen] = useState(false)
@@ -54,6 +77,7 @@ export function ChatbotWidget() {
         {
           role: "bot",
           text: response.ok ? data.answer : data.message || "Maaf, terjadi kesalahan. Coba lagi ya.",
+          sumber: response.ok ? data.sumber : null,
         },
       ])
     } catch {
@@ -76,7 +100,7 @@ export function ChatbotWidget() {
               <Bot className="h-5 w-5" />
               <div>
                 <p className="font-semibold text-sm leading-tight">Asisten Toko Agung</p>
-                <p className="text-xs text-white/80">Tanya stok, harga, & info toko</p>
+                <p className="text-xs text-white/80">Jawaban berdasarkan data toko real-time</p>
               </div>
             </div>
             <button onClick={() => setIsOpen(false)} className="text-white/80 hover:text-white">
@@ -86,19 +110,35 @@ export function ChatbotWidget() {
           </div>
 
           <div className="h-80 overflow-y-auto p-3 space-y-3 bg-gray-50">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${
-                    msg.role === "user"
-                      ? "bg-[#00C559] text-white rounded-br-sm"
-                      : "bg-white border text-[#2D2D2D] rounded-bl-sm shadow-sm"
-                  }`}
-                >
-                  {msg.text}
+            {messages.map((msg, i) => {
+              const sources = msg.role === "bot" ? formatSumber(msg.sumber) : []
+              return (
+                <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${
+                      msg.role === "user"
+                        ? "bg-[#00C559] text-white rounded-br-sm"
+                        : "bg-white border text-[#2D2D2D] rounded-bl-sm shadow-sm"
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
+                  {sources.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1 max-w-[85%]">
+                      {sources.map((label, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1 text-[10px] leading-none text-gray-500 bg-gray-100 border rounded-full px-2 py-1"
+                        >
+                          <Database className="h-2.5 w-2.5" />
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {loading && (
               <div className="flex justify-start">
                 <div className="bg-white border rounded-2xl rounded-bl-sm px-3 py-2 text-sm text-gray-400 shadow-sm">

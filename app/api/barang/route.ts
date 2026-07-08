@@ -1,33 +1,57 @@
 // API Barang — pengganti endpoint PHP barang/read|create|update|delete.php
-// GET    /api/barang?s=kata   → daftar barang (publik, dipakai katalog & dashboard)
+// GET    /api/barang?s=kata&kategori=nama&page=&limit=   → daftar barang (publik, dipakai katalog & dashboard)
+//        `page`/`limit` opsional — kalau tidak dikirim, kembalikan seluruh
+//        data seperti sebelumnya (dipakai katalog belanja & pencarian kasir).
+//        Kalau dikirim, respons dipaginasi + field `pagination` (dipakai tabel admin).
 // POST   /api/barang          → tambah barang (admin)
 // PUT    /api/barang          → ubah barang (admin)
 // DELETE /api/barang          → hapus barang (admin)
 import { NextResponse } from "next/server"
 import { query } from "@/lib/db"
 import { requireAdmin } from "@/lib/auth"
+import { parsePagination, buildPaginationMeta, splitCountedRows } from "@/lib/pagination"
 
-const BASE_SELECT = `
-  SELECT b.id, b.kode_barang, b.nama_barang,
+const BASE_FIELDS = `b.id, b.kode_barang, b.nama_barang,
          COALESCE(k.nama_kategori, 'Tanpa Kategori') AS nama_kategori,
          b.harga::float8 AS harga, b.stok, b.stok_minimum, b.satuan,
-         b.deskripsi, b.gambar, b.status
-  FROM barang b
-  LEFT JOIN kategori k ON k.id = b.kategori_id`
+         b.deskripsi, b.gambar, b.status`
+const FROM_CLAUSE = `FROM barang b LEFT JOIN kategori k ON k.id = b.kategori_id`
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const s = searchParams.get("s")?.trim()
+    const kategori = searchParams.get("kategori")?.trim()
+    const isPaginated = searchParams.has("page") || searchParams.has("limit")
 
-    const records = s
-      ? await query(
-          `${BASE_SELECT} WHERE b.nama_barang ILIKE $1 OR b.kode_barang ILIKE $1 ORDER BY b.nama_barang`,
-          [`%${s}%`],
-        )
-      : await query(`${BASE_SELECT} ORDER BY b.nama_barang`)
+    const conditions: string[] = []
+    const params: unknown[] = []
+    if (s) {
+      params.push(`%${s}%`)
+      conditions.push(`(b.nama_barang ILIKE $${params.length} OR b.kode_barang ILIKE $${params.length})`)
+    }
+    if (kategori && kategori !== "Semua") {
+      params.push(kategori)
+      conditions.push(`COALESCE(k.nama_kategori, 'Tanpa Kategori') = $${params.length}`)
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 
-    return NextResponse.json({ records })
+    if (!isPaginated) {
+      const records = await query(
+        `SELECT ${BASE_FIELDS} ${FROM_CLAUSE} ${where} ORDER BY b.nama_barang`,
+        params,
+      )
+      return NextResponse.json({ records })
+    }
+
+    const { page, limit, offset } = parsePagination(searchParams)
+    const rows = await query(
+      `SELECT ${BASE_FIELDS}, COUNT(*) OVER() AS total_count ${FROM_CLAUSE} ${where}
+       ORDER BY b.nama_barang LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    )
+    const { records, total } = splitCountedRows(rows)
+    return NextResponse.json({ records, pagination: buildPaginationMeta(page, limit, total) })
   } catch (err) {
     console.error("Barang GET error:", err)
     return NextResponse.json({ message: "Gagal memuat data barang" }, { status: 500 })

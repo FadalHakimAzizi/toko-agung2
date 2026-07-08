@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { id as localeId } from "date-fns/locale"
 import { ChatbotWidget } from "@/components/chatbot-widget"
+import { UserNav } from "@/components/user-nav"
 
 interface Pesanan {
   id: number
@@ -85,11 +86,14 @@ export default function PesananPage() {
             </Link>
             <h1 className="font-bold text-[#2D2D2D]">Pesanan Saya</h1>
           </div>
-          <Link href="/belanja">
-            <Button size="sm" variant="outline">
-              <ShoppingBag className="h-4 w-4 mr-1" /> Belanja Lagi
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/belanja">
+              <Button size="sm" variant="outline">
+                <ShoppingBag className="h-4 w-4 mr-1" /> Belanja Lagi
+              </Button>
+            </Link>
+            <UserNav />
+          </div>
         </div>
       </header>
 
